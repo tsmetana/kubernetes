@@ -49,11 +49,13 @@ func (APIGroupList) SwaggerDoc() map[string]string {
 }
 
 var map_APIResource = map[string]string{
-	"":           "APIResource specifies the name of a resource and whether it is namespaced.",
-	"name":       "name is the name of the resource.",
-	"namespaced": "namespaced indicates if a resource is namespaced or not.",
-	"kind":       "kind is the kind for the resource (e.g. 'Foo' is the kind for a resource 'foo')",
-	"verbs":      "verbs is a list of supported kube verbs (this includes get, list, watch, create, update, patch, delete, deletecollection, and proxy)",
+	"":             "APIResource specifies the name of a resource and whether it is namespaced.",
+	"name":         "name is the plural name of the resource.",
+	"singularName": "singularName is the singular name of the resource.  This allows clients to handle plural and singular opaquely. The singularName is more correct for reporting status on a single item and both singular and plural are allowed from the kubectl CLI interface.",
+	"namespaced":   "namespaced indicates if a resource is namespaced or not.",
+	"kind":         "kind is the kind for the resource (e.g. 'Foo' is the kind for a resource 'foo')",
+	"verbs":        "verbs is a list of supported kube verbs (this includes get, list, watch, create, update, patch, delete, deletecollection, and proxy)",
+	"shortNames":   "shortNames is a list of suggested short names of the resource.",
 }
 
 func (APIResource) SwaggerDoc() map[string]string {
@@ -78,6 +80,18 @@ var map_APIVersions = map[string]string{
 
 func (APIVersions) SwaggerDoc() map[string]string {
 	return map_APIVersions
+}
+
+var map_DeleteOptions = map[string]string{
+	"":                   "DeleteOptions may be provided when deleting an API object.",
+	"gracePeriodSeconds": "The duration in seconds before the object should be deleted. Value must be non-negative integer. The value zero indicates delete immediately. If this value is nil, the default grace period for the specified type will be used. Defaults to a per object value if not specified. zero means delete immediately.",
+	"preconditions":      "Must be fulfilled before a deletion is carried out. If not possible, a 409 Conflict status will be returned.",
+	"orphanDependents":   "Deprecated: please use the PropagationPolicy, this field will be deprecated in 1.7. Should the dependent objects be orphaned. If true/false, the \"orphan\" finalizer will be added to/removed from the object's finalizers list. Either this field or PropagationPolicy may be set, but not both.",
+	"propagationPolicy":  "Whether and how garbage collection will be performed. Either this field or OrphanDependents may be set, but not both. The default policy is decided by the existing finalizer set in the metadata.finalizers and the resource-specific default policy.",
+}
+
+func (DeleteOptions) SwaggerDoc() map[string]string {
+	return map_DeleteOptions
 }
 
 var map_ExportOptions = map[string]string{
@@ -140,6 +154,19 @@ func (ListMeta) SwaggerDoc() map[string]string {
 	return map_ListMeta
 }
 
+var map_ListOptions = map[string]string{
+	"":                "ListOptions is the query options to a standard REST list call.",
+	"labelSelector":   "A selector to restrict the list of returned objects by their labels. Defaults to everything.",
+	"fieldSelector":   "A selector to restrict the list of returned objects by their fields. Defaults to everything.",
+	"watch":           "Watch for changes to the described resources and return them as a stream of add, update, and remove notifications. Specify resourceVersion.",
+	"resourceVersion": "When specified with a watch call, shows changes that occur after that particular version of a resource. Defaults to changes from the beginning of history. When specified for list: - if unset, then the result is returned from remote storage based on quorum-read flag; - if it's 0, then we simply return what we currently have in cache, no guarantee; - if set to non zero, then the result is at least as fresh as given rv.",
+	"timeoutSeconds":  "Timeout for the list/watch call.",
+}
+
+func (ListOptions) SwaggerDoc() map[string]string {
+	return map_ListOptions
+}
+
 var map_ObjectMeta = map[string]string{
 	"":                           "ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.",
 	"name":                       "Name must be unique within a namespace. Is required when creating resources, although some resources may allow a client to request the generation of an appropriate name automatically. Name is primarily intended for creation idempotence and configuration definition. Cannot be updated. More info: http://kubernetes.io/docs/user-guide/identifiers#names",
@@ -164,12 +191,13 @@ func (ObjectMeta) SwaggerDoc() map[string]string {
 }
 
 var map_OwnerReference = map[string]string{
-	"":           "OwnerReference contains enough information to let you identify an owning object. Currently, an owning object must be in the same namespace, so there is no namespace field.",
-	"apiVersion": "API version of the referent.",
-	"kind":       "Kind of the referent. More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#types-kinds",
-	"name":       "Name of the referent. More info: http://kubernetes.io/docs/user-guide/identifiers#names",
-	"uid":        "UID of the referent. More info: http://kubernetes.io/docs/user-guide/identifiers#uids",
-	"controller": "If true, this reference points to the managing controller.",
+	"":                   "OwnerReference contains enough information to let you identify an owning object. Currently, an owning object must be in the same namespace, so there is no namespace field.",
+	"apiVersion":         "API version of the referent.",
+	"kind":               "Kind of the referent. More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#types-kinds",
+	"name":               "Name of the referent. More info: http://kubernetes.io/docs/user-guide/identifiers#names",
+	"uid":                "UID of the referent. More info: http://kubernetes.io/docs/user-guide/identifiers#uids",
+	"controller":         "If true, this reference points to the managing controller.",
+	"blockOwnerDeletion": "If true, AND if the owner has the \"foregroundDeletion\" finalizer, then the owner cannot be deleted from the key-value store until this reference is removed. Defaults to false. To set this field, a user needs \"delete\" permission of the owner, otherwise 422 (Unprocessable Entity) will be returned.",
 }
 
 func (OwnerReference) SwaggerDoc() map[string]string {
@@ -182,6 +210,15 @@ var map_Patch = map[string]string{
 
 func (Patch) SwaggerDoc() map[string]string {
 	return map_Patch
+}
+
+var map_Preconditions = map[string]string{
+	"":    "Preconditions must be fulfilled before an operation (update, delete, etc.) is carried out.",
+	"uid": "Specifies the target UID.",
+}
+
+func (Preconditions) SwaggerDoc() map[string]string {
+	return map_Preconditions
 }
 
 var map_RootPaths = map[string]string{

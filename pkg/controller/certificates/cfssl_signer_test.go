@@ -22,7 +22,7 @@ import (
 	"reflect"
 	"testing"
 
-	"k8s.io/client-go/pkg/util/cert"
+	"k8s.io/client-go/util/cert"
 	capi "k8s.io/kubernetes/pkg/apis/certificates/v1beta1"
 )
 
@@ -49,10 +49,11 @@ func TestSigner(t *testing.T) {
 		},
 	}
 
-	certData, err := s.Sign(csr)
+	csr, err = s.Sign(csr)
 	if err != nil {
 		t.Fatalf("failed to sign CSR: %v", err)
 	}
+	certData := csr.Status.Certificate
 	if len(certData) == 0 {
 		t.Fatalf("expected a certificate after signing")
 	}

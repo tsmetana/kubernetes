@@ -26,6 +26,7 @@ import (
 
 	"github.com/golang/glog"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
@@ -33,14 +34,16 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apimachinery/pkg/watch"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/rest"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/helper"
 	apiservice "k8s.io/kubernetes/pkg/api/service"
 	"k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/rest"
+	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/registry/core/endpoint"
 	"k8s.io/kubernetes/pkg/registry/core/service/ipallocator"
 	"k8s.io/kubernetes/pkg/registry/core/service/portallocator"
-	featuregate "k8s.io/kubernetes/pkg/util/config"
 )
 
 // ServiceRest includes storage for services and all sub resources
@@ -85,16 +88,13 @@ func (rs *REST) Create(ctx genericapirequest.Context, obj runtime.Object) (runti
 	releaseServiceIP := false
 	defer func() {
 		if releaseServiceIP {
-			if api.IsServiceIPSet(service) {
+			if helper.IsServiceIPSet(service) {
 				rs.serviceIPs.Release(net.ParseIP(service.Spec.ClusterIP))
 			}
 		}
 	}()
 
-	nodePortOp := portallocator.StartOperation(rs.serviceNodePorts)
-	defer nodePortOp.Finish()
-
-	if api.IsServiceIPRequested(service) {
+	if helper.IsServiceIPRequested(service) {
 		// Allocate next available.
 		ip, err := rs.serviceIPs.AllocateNext()
 		if err != nil {
@@ -105,7 +105,7 @@ func (rs *REST) Create(ctx genericapirequest.Context, obj runtime.Object) (runti
 		}
 		service.Spec.ClusterIP = ip.String()
 		releaseServiceIP = true
-	} else if api.IsServiceIPSet(service) {
+	} else if helper.IsServiceIPSet(service) {
 		// Try to respect the requested IP.
 		if err := rs.serviceIPs.Allocate(net.ParseIP(service.Spec.ClusterIP)); err != nil {
 			// TODO: when validation becomes versioned, this gets more complicated.
@@ -114,6 +114,9 @@ func (rs *REST) Create(ctx genericapirequest.Context, obj runtime.Object) (runti
 		}
 		releaseServiceIP = true
 	}
+
+	nodePortOp := portallocator.StartOperation(rs.serviceNodePorts)
+	defer nodePortOp.Finish()
 
 	assignNodePorts := shouldAssignNodePorts(service)
 	svcPortToNodePort := map[int]int{}
@@ -224,7 +227,7 @@ func (rs *REST) Delete(ctx genericapirequest.Context, id string) (runtime.Object
 		return nil, err
 	}
 
-	if api.IsServiceIPSet(service) {
+	if helper.IsServiceIPSet(service) {
 		rs.serviceIPs.Release(net.ParseIP(service.Spec.ClusterIP))
 	}
 
@@ -253,13 +256,13 @@ func (rs *REST) Get(ctx genericapirequest.Context, id string, options *metav1.Ge
 	return rs.registry.GetService(ctx, id, options)
 }
 
-func (rs *REST) List(ctx genericapirequest.Context, options *api.ListOptions) (runtime.Object, error) {
+func (rs *REST) List(ctx genericapirequest.Context, options *metainternalversion.ListOptions) (runtime.Object, error) {
 	return rs.registry.ListServices(ctx, options)
 }
 
 // Watch returns Services events via a watch.Interface.
 // It implements rest.Watcher.
-func (rs *REST) Watch(ctx genericapirequest.Context, options *api.ListOptions) (watch.Interface, error) {
+func (rs *REST) Watch(ctx genericapirequest.Context, options *metainternalversion.ListOptions) (watch.Interface, error) {
 	return rs.registry.WatchServices(ctx, options)
 }
 
@@ -434,7 +437,7 @@ func (rs *REST) Update(ctx genericapirequest.Context, name string, objInfo rest.
 	// The comparison loops are O(N^2), but we don't expect N to be huge
 	// (there's a hard-limit at 2^16, because they're ports; and even 4 ports would be a lot)
 	for _, oldNodePort := range oldNodePorts {
-		if !contains(newNodePorts, oldNodePort) {
+		if contains(newNodePorts, oldNodePort) {
 			continue
 		}
 		nodePortOp.ReleaseDeferred(oldNodePort)
@@ -555,6 +558,8 @@ func shouldAssignNodePorts(service *api.Service) bool {
 		return true
 	case api.ServiceTypeClusterIP:
 		return false
+	case api.ServiceTypeExternalName:
+		return false
 	default:
 		glog.Errorf("Unknown service type: %v", service.Spec.Type)
 		return false
@@ -564,7 +569,7 @@ func shouldAssignNodePorts(service *api.Service) bool {
 func shouldCheckOrAssignHealthCheckNodePort(service *api.Service) bool {
 	if service.Spec.Type == api.ServiceTypeLoadBalancer {
 		// True if Service-type == LoadBalancer AND annotation AnnotationExternalTraffic present
-		return (featuregate.DefaultFeatureGate.ExternalTrafficLocalOnly() && apiservice.NeedsHealthCheck(service))
+		return (utilfeature.DefaultFeatureGate.Enabled(features.ExternalTrafficLocalOnly) && apiservice.NeedsHealthCheck(service))
 	}
 	glog.V(4).Infof("Service type: %v does not need health check node port", service.Spec.Type)
 	return false

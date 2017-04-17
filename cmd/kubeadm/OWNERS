@@ -3,6 +3,7 @@ approvers:
 - jbeda
 - luxas
 - mikedanese
+- krousey
 reviewers:
 - mikedanese
 - luxas
@@ -10,4 +11,5 @@ reviewers:
 - errordeveloper
 - pires
 - lukemarsden
-- dgoodwin
+- dmmcquay
+- krousey

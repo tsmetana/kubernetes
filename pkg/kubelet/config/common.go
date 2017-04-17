@@ -22,10 +22,12 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/helper"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/api/validation"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -57,7 +59,7 @@ func applyDefaults(pod *api.Pod, source string, isFile bool, nodeName types.Node
 	glog.V(5).Infof("Generated Name %q for UID %q from URL %s", pod.Name, pod.UID, source)
 
 	if pod.Namespace == "" {
-		pod.Namespace = kubetypes.NamespaceDefault
+		pod.Namespace = metav1.NamespaceDefault
 	}
 	glog.V(5).Infof("Using namespace %q for pod %q from %s", pod.Namespace, pod.Name, source)
 
@@ -72,6 +74,15 @@ func applyDefaults(pod *api.Pod, source string, isFile bool, nodeName types.Node
 	// The generated UID is the hash of the file.
 	pod.Annotations[kubetypes.ConfigHashAnnotationKey] = string(pod.UID)
 
+	if isFile {
+		// Applying the default Taint tolerations to static pods,
+		// so they are not evicted when there are node problems.
+		helper.AddOrUpdateTolerationInPod(pod, &api.Toleration{
+			Operator: "Exists",
+			Effect:   api.TaintEffectNoExecute,
+		})
+	}
+
 	// Set the default status to pending.
 	pod.Status.Phase = api.PodPending
 	return nil
@@ -80,7 +91,7 @@ func applyDefaults(pod *api.Pod, source string, isFile bool, nodeName types.Node
 func getSelfLink(name, namespace string) string {
 	var selfLink string
 	if len(namespace) == 0 {
-		namespace = api.NamespaceDefault
+		namespace = metav1.NamespaceDefault
 	}
 	selfLink = fmt.Sprintf("/api/"+api.Registry.GroupOrDie(api.GroupName).GroupVersion.Version+"/pods/namespaces/%s/%s", name, namespace)
 	return selfLink

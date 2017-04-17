@@ -60,6 +60,7 @@ var _ = framework.KubeDescribe("AppArmor [Feature:AppArmor]", func() {
 					return
 				}
 				state := status.ContainerStatuses[0].State.Terminated
+				Expect(state).ToNot(BeNil(), "ContainerState: %+v", status.ContainerStatuses[0].State)
 				Expect(state.ExitCode).To(Not(BeZero()), "ContainerStateTerminated: %+v", state)
 
 			})
@@ -70,6 +71,7 @@ var _ = framework.KubeDescribe("AppArmor [Feature:AppArmor]", func() {
 					return
 				}
 				state := status.ContainerStatuses[0].State.Terminated
+				Expect(state).ToNot(BeNil(), "ContainerState: %+v", status.ContainerStatuses[0].State)
 				Expect(state.ExitCode).To(BeZero(), "ContainerStateTerminated: %+v", state)
 			})
 		})
@@ -144,10 +146,10 @@ func runAppArmorTest(f *framework.Framework, shouldRun bool, profile string) v1.
 	if shouldRun {
 		// The pod needs to start before it stops, so wait for the longer start timeout.
 		framework.ExpectNoError(framework.WaitTimeoutForPodNoLongerRunningInNamespace(
-			f.ClientSet, pod.Name, f.Namespace.Name, "", framework.PodStartTimeout))
+			f.ClientSet, pod.Name, f.Namespace.Name, framework.PodStartTimeout))
 	} else {
 		// Pod should remain in the pending state. Wait for the Reason to be set to "AppArmor".
-		w, err := f.PodClient().Watch(v1.SingleObject(metav1.ObjectMeta{Name: pod.Name}))
+		w, err := f.PodClient().Watch(metav1.SingleObject(metav1.ObjectMeta{Name: pod.Name}))
 		framework.ExpectNoError(err)
 		_, err = watch.Until(framework.PodStartTimeout, w, func(e watch.Event) (bool, error) {
 			switch e.Type {

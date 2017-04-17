@@ -31,8 +31,11 @@ import (
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/helper"
 	"k8s.io/kubernetes/pkg/apis/extensions"
-	"k8s.io/kubernetes/pkg/client/cache"
+	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
+	extensionslisters "k8s.io/kubernetes/pkg/client/listers/extensions/internalversion"
+	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/security/apparmor"
 	kpsp "k8s.io/kubernetes/pkg/security/podsecuritypolicy"
 	"k8s.io/kubernetes/pkg/security/podsecuritypolicy/seccomp"
@@ -43,30 +46,30 @@ const defaultContainerName = "test-c"
 
 // NewTestAdmission provides an admission plugin with test implementations of internal structs.  It uses
 // an authorizer that always returns true.
-func NewTestAdmission(store cache.Store) kadmission.Interface {
+func NewTestAdmission(lister extensionslisters.PodSecurityPolicyLister) kadmission.Interface {
 	return &podSecurityPolicyPlugin{
 		Handler:         kadmission.NewHandler(kadmission.Create),
-		store:           store,
 		strategyFactory: kpsp.NewSimpleStrategyFactory(),
 		pspMatcher:      getMatchingPolicies,
 		authz:           &TestAuthorizer{},
+		lister:          lister,
 	}
 }
 
 // TestAlwaysAllowedAuthorizer is a testing struct for testing that fulfills the authorizer interface.
 type TestAuthorizer struct {
-	// disallowed contains names of disallowed policies.  Map is keyed by user.Info.GetName()
-	disallowed map[string][]string
+	// usernameToNamespaceToAllowedPSPs contains the map of allowed PSPs.
+	// if nil, all PSPs are allowed.
+	usernameToNamespaceToAllowedPSPs map[string]map[string]map[string]bool
 }
 
 func (t *TestAuthorizer) Authorize(a authorizer.Attributes) (authorized bool, reason string, err error) {
-	disallowedForUser, _ := t.disallowed[a.GetUser().GetName()]
-	for _, name := range disallowedForUser {
-		if a.GetName() == name {
-			return false, "", nil
-		}
+	if t.usernameToNamespaceToAllowedPSPs == nil {
+		return true, "", nil
 	}
-	return true, "", nil
+	allowedInNamespace := t.usernameToNamespaceToAllowedPSPs[a.GetUser().GetName()][a.GetNamespace()][a.GetName()]
+	allowedClusterWide := t.usernameToNamespaceToAllowedPSPs[a.GetUser().GetName()][""][a.GetName()]
+	return (allowedInNamespace || allowedClusterWide), "", nil
 }
 
 var _ authorizer.Authorizer = &TestAuthorizer{}
@@ -1170,8 +1173,8 @@ func TestAdmitSysctls(t *testing.T) {
 			}
 			return sysctls
 		}
-		pod.Annotations[kapi.SysctlsPodAnnotationKey] = kapi.PodAnnotationsFromSysctls(dummySysctls(safeSysctls))
-		pod.Annotations[kapi.UnsafeSysctlsPodAnnotationKey] = kapi.PodAnnotationsFromSysctls(dummySysctls(unsafeSysctls))
+		pod.Annotations[kapi.SysctlsPodAnnotationKey] = helper.PodAnnotationsFromSysctls(dummySysctls(safeSysctls))
+		pod.Annotations[kapi.UnsafeSysctlsPodAnnotationKey] = helper.PodAnnotationsFromSysctls(dummySysctls(unsafeSysctls))
 		return pod
 	}
 
@@ -1317,7 +1320,7 @@ func TestAdmitSysctls(t *testing.T) {
 	}
 
 	for k, v := range tests {
-		origSafeSysctls, origUnsafeSysctls, err := kapi.SysctlsFromPodAnnotations(v.pod.Annotations)
+		origSafeSysctls, origUnsafeSysctls, err := helper.SysctlsFromPodAnnotations(v.pod.Annotations)
 		if err != nil {
 			t.Fatalf("invalid sysctl annotation: %v", err)
 		}
@@ -1325,7 +1328,7 @@ func TestAdmitSysctls(t *testing.T) {
 		testPSPAdmit(k, v.psps, v.pod, v.shouldPass, v.expectedPSP, t)
 
 		if v.shouldPass {
-			safeSysctls, unsafeSysctls, _ := kapi.SysctlsFromPodAnnotations(v.pod.Annotations)
+			safeSysctls, unsafeSysctls, _ := helper.SysctlsFromPodAnnotations(v.pod.Annotations)
 			if !reflect.DeepEqual(safeSysctls, origSafeSysctls) {
 				t.Errorf("%s: wrong safe sysctls: expected=%v, got=%v", k, origSafeSysctls, safeSysctls)
 			}
@@ -1337,13 +1340,14 @@ func TestAdmitSysctls(t *testing.T) {
 }
 
 func testPSPAdmit(testCaseName string, psps []*extensions.PodSecurityPolicy, pod *kapi.Pod, shouldPass bool, expectedPSP string, t *testing.T) {
-	store := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	informerFactory := informers.NewSharedInformerFactory(nil, controller.NoResyncPeriodFunc())
+	store := informerFactory.Extensions().InternalVersion().PodSecurityPolicies().Informer().GetStore()
 
 	for _, psp := range psps {
 		store.Add(psp)
 	}
 
-	plugin := NewTestAdmission(store)
+	plugin := NewTestAdmission(informerFactory.Extensions().InternalVersion().PodSecurityPolicies().Lister())
 
 	attrs := kadmission.NewAttributesRecord(pod, nil, kapi.Kind("Pod").WithVersion("version"), "namespace", "", kapi.Resource("pods").WithVersion("version"), "", kadmission.Create, &user.DefaultInfo{})
 	err := plugin.Admit(attrs)
@@ -1505,11 +1509,8 @@ func TestCreateProvidersFromConstraints(t *testing.T) {
 	}
 
 	for k, v := range testCases {
-		store := cache.NewStore(cache.MetaNamespaceKeyFunc)
-
 		admit := &podSecurityPolicyPlugin{
 			Handler:         kadmission.NewHandler(kadmission.Create, kadmission.Update),
-			store:           store,
 			strategyFactory: kpsp.NewSimpleStrategyFactory(),
 		}
 
@@ -1546,17 +1547,21 @@ func TestGetMatchingPolicies(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		user               user.Info
-		sa                 user.Info
-		expectedPolicies   sets.String
-		inPolicies         []*extensions.PodSecurityPolicy
-		disallowedPolicies map[string][]string
+		user             user.Info
+		sa               user.Info
+		ns               string
+		expectedPolicies sets.String
+		inPolicies       []*extensions.PodSecurityPolicy
+		allowed          map[string]map[string]map[string]bool
 	}{
 		"policy allowed by user": {
 			user: &user.DefaultInfo{Name: "user"},
 			sa:   &user.DefaultInfo{Name: "sa"},
-			disallowedPolicies: map[string][]string{
-				"sa": {"policy"},
+			ns:   "test",
+			allowed: map[string]map[string]map[string]bool{
+				"user": {
+					"test": {"policy": true},
+				},
 			},
 			inPolicies:       []*extensions.PodSecurityPolicy{policyWithName("policy")},
 			expectedPolicies: sets.NewString("policy"),
@@ -1564,77 +1569,121 @@ func TestGetMatchingPolicies(t *testing.T) {
 		"policy allowed by sa": {
 			user: &user.DefaultInfo{Name: "user"},
 			sa:   &user.DefaultInfo{Name: "sa"},
-			disallowedPolicies: map[string][]string{
-				"user": {"policy"},
+			ns:   "test",
+			allowed: map[string]map[string]map[string]bool{
+				"sa": {
+					"test": {"policy": true},
+				},
 			},
 			inPolicies:       []*extensions.PodSecurityPolicy{policyWithName("policy")},
 			expectedPolicies: sets.NewString("policy"),
 		},
 		"no policies allowed": {
-			user: &user.DefaultInfo{Name: "user"},
-			sa:   &user.DefaultInfo{Name: "sa"},
-			disallowedPolicies: map[string][]string{
-				"user": {"policy"},
-				"sa":   {"policy"},
-			},
+			user:             &user.DefaultInfo{Name: "user"},
+			sa:               &user.DefaultInfo{Name: "sa"},
+			ns:               "test",
+			allowed:          map[string]map[string]map[string]bool{},
 			inPolicies:       []*extensions.PodSecurityPolicy{policyWithName("policy")},
 			expectedPolicies: sets.NewString(),
 		},
 		"multiple policies allowed": {
 			user: &user.DefaultInfo{Name: "user"},
 			sa:   &user.DefaultInfo{Name: "sa"},
-			disallowedPolicies: map[string][]string{
-				"user": {"policy1", "policy3"},
-				"sa":   {"policy2", "policy3"},
+			ns:   "test",
+			allowed: map[string]map[string]map[string]bool{
+				"sa": {
+					"test":  {"policy1": true},
+					"":      {"policy4": true},
+					"other": {"policy6": true},
+				},
+				"user": {
+					"test":  {"policy2": true},
+					"":      {"policy5": true},
+					"other": {"policy7": true},
+				},
 			},
 			inPolicies: []*extensions.PodSecurityPolicy{
 				policyWithName("policy1"), // allowed by sa
 				policyWithName("policy2"), // allowed by user
 				policyWithName("policy3"), // not allowed
+				policyWithName("policy4"), // allowed by sa at cluster level
+				policyWithName("policy5"), // allowed by user at cluster level
+				policyWithName("policy6"), // not allowed in this namespace
+				policyWithName("policy7"), // not allowed in this namespace
 			},
-			expectedPolicies: sets.NewString("policy1", "policy2"),
+			expectedPolicies: sets.NewString("policy1", "policy2", "policy4", "policy5"),
 		},
-		"policies are allowed for nil user info": {
+		"policies are not allowed for nil user info": {
 			user: nil,
 			sa:   &user.DefaultInfo{Name: "sa"},
-			disallowedPolicies: map[string][]string{
-				"user": {"policy1", "policy3"},
-				"sa":   {"policy2", "policy3"},
+			ns:   "test",
+			allowed: map[string]map[string]map[string]bool{
+				"sa": {
+					"test": {"policy1": true},
+				},
+				"user": {
+					"test": {"policy2": true},
+				},
 			},
 			inPolicies: []*extensions.PodSecurityPolicy{
 				policyWithName("policy1"),
 				policyWithName("policy2"),
 				policyWithName("policy3"),
 			},
-			// all policies are allowed regardless of the permissions when user info is nil
-			// (ie. a request hitting the unsecure port)
-			expectedPolicies: sets.NewString("policy1", "policy2", "policy3"),
+			// only the policies for the sa are allowed when user info is nil
+			expectedPolicies: sets.NewString("policy1"),
 		},
-		"policies are allowed for nil sa info": {
+		"policies are not allowed for nil sa info": {
 			user: &user.DefaultInfo{Name: "user"},
 			sa:   nil,
-			disallowedPolicies: map[string][]string{
-				"user": {"policy1", "policy3"},
-				"sa":   {"policy2", "policy3"},
+			ns:   "test",
+			allowed: map[string]map[string]map[string]bool{
+				"sa": {
+					"test": {"policy1": true},
+				},
+				"user": {
+					"test": {"policy2": true},
+				},
 			},
 			inPolicies: []*extensions.PodSecurityPolicy{
 				policyWithName("policy1"),
 				policyWithName("policy2"),
 				policyWithName("policy3"),
 			},
-			// all policies are allowed regardless of the permissions when sa info is nil
-			// (ie. a request hitting the unsecure port)
-			expectedPolicies: sets.NewString("policy1", "policy2", "policy3"),
+			// only the policies for the user are allowed when sa info is nil
+			expectedPolicies: sets.NewString("policy2"),
+		},
+		"policies are not allowed for nil sa and user info": {
+			user: nil,
+			sa:   nil,
+			ns:   "test",
+			allowed: map[string]map[string]map[string]bool{
+				"sa": {
+					"test": {"policy1": true},
+				},
+				"user": {
+					"test": {"policy2": true},
+				},
+			},
+			inPolicies: []*extensions.PodSecurityPolicy{
+				policyWithName("policy1"),
+				policyWithName("policy2"),
+				policyWithName("policy3"),
+			},
+			// no policies are allowed if sa and user are both nil
+			expectedPolicies: sets.NewString(),
 		},
 	}
 	for k, v := range tests {
-		store := cache.NewStore(cache.MetaNamespaceKeyFunc)
+		informerFactory := informers.NewSharedInformerFactory(nil, controller.NoResyncPeriodFunc())
+		pspInformer := informerFactory.Extensions().InternalVersion().PodSecurityPolicies()
+		store := pspInformer.Informer().GetStore()
 		for _, psp := range v.inPolicies {
 			store.Add(psp)
 		}
 
-		authz := &TestAuthorizer{disallowed: v.disallowedPolicies}
-		allowedPolicies, err := getMatchingPolicies(store, v.user, v.sa, authz)
+		authz := &TestAuthorizer{usernameToNamespaceToAllowedPSPs: v.allowed}
+		allowedPolicies, err := getMatchingPolicies(pspInformer.Lister(), v.user, v.sa, authz, v.ns)
 		if err != nil {
 			t.Errorf("%s got unexpected error %#v", k, err)
 			continue

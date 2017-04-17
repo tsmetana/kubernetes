@@ -30,8 +30,10 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	staging "k8s.io/client-go/kubernetes"
 	clientreporestclient "k8s.io/client-go/rest"
 	restclient "k8s.io/client-go/rest"
@@ -39,9 +41,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
-	"k8s.io/kubernetes/pkg/client/typed/dynamic"
 	"k8s.io/kubernetes/pkg/metrics"
-	"k8s.io/kubernetes/pkg/util/intstr"
 	testutils "k8s.io/kubernetes/test/utils"
 
 	. "github.com/onsi/ginkgo"
@@ -64,14 +64,15 @@ type Framework struct {
 	StagingClient     *staging.Clientset
 	ClientPool        dynamic.ClientPool
 
-	Namespace                *v1.Namespace   // Every test has at least one namespace
+	SkipNamespaceCreation    bool            // Whether to skip creating a namespace
+	Namespace                *v1.Namespace   // Every test has at least one namespace unless creation is skipped
 	namespacesToDelete       []*v1.Namespace // Some tests have more than one.
 	NamespaceDeletionTimeout time.Duration
 
 	gatherer *containerResourceGatherer
 	// Constraints that passed to a check which is executed after data is gathered to
-	// see if 99% of results are within acceptable bounds. It as to be injected in the test,
-	// as expectations vary greatly. Constraints are groupped by the container names.
+	// see if 99% of results are within acceptable bounds. It has to be injected in the test,
+	// as expectations vary greatly. Constraints are grouped by the container names.
 	AddonResourceConstraints map[string]ResourceConstraint
 
 	logsSizeWaitGroup    sync.WaitGroup
@@ -84,7 +85,7 @@ type Framework struct {
 	cleanupHandle CleanupActionHandle
 
 	// configuration for framework's client
-	options FrameworkOptions
+	Options FrameworkOptions
 }
 
 type TestDataSummary interface {
@@ -108,17 +109,11 @@ func NewDefaultFramework(baseName string) *Framework {
 	return NewFramework(baseName, options, nil)
 }
 
-func NewDefaultGroupVersionFramework(baseName string, groupVersion schema.GroupVersion) *Framework {
-	f := NewDefaultFramework(baseName)
-	f.options.GroupVersion = &groupVersion
-	return f
-}
-
 func NewFramework(baseName string, options FrameworkOptions, client clientset.Interface) *Framework {
 	f := &Framework{
 		BaseName:                 baseName,
 		AddonResourceConstraints: make(map[string]ResourceConstraint),
-		options:                  options,
+		Options:                  options,
 		ClientSet:                client,
 	}
 
@@ -169,10 +164,10 @@ func (f *Framework) BeforeEach() {
 		By("Creating a kubernetes client")
 		config, err := LoadConfig()
 		Expect(err).NotTo(HaveOccurred())
-		config.QPS = f.options.ClientQPS
-		config.Burst = f.options.ClientBurst
-		if f.options.GroupVersion != nil {
-			config.GroupVersion = f.options.GroupVersion
+		config.QPS = f.Options.ClientQPS
+		config.Burst = f.Options.ClientBurst
+		if f.Options.GroupVersion != nil {
+			config.GroupVersion = f.Options.GroupVersion
 		}
 		if TestContext.KubeAPIContentType != "" {
 			config.ContentType = TestContext.KubeAPIContentType
@@ -187,23 +182,26 @@ func (f *Framework) BeforeEach() {
 		f.ClientPool = dynamic.NewClientPool(config, api.Registry.RESTMapper(), dynamic.LegacyAPIPathResolverFunc)
 	}
 
-	By("Building a namespace api object")
-	namespace, err := f.CreateNamespace(f.BaseName, map[string]string{
-		"e2e-framework": f.BaseName,
-	})
-	Expect(err).NotTo(HaveOccurred())
-
-	f.Namespace = namespace
-
-	if TestContext.VerifyServiceAccount {
-		By("Waiting for a default service account to be provisioned in namespace")
-		err = WaitForDefaultServiceAccountInNamespace(f.ClientSet, namespace.Name)
+	if !f.SkipNamespaceCreation {
+		By("Building a namespace api object")
+		namespace, err := f.CreateNamespace(f.BaseName, map[string]string{
+			"e2e-framework": f.BaseName,
+		})
 		Expect(err).NotTo(HaveOccurred())
-	} else {
-		Logf("Skipping waiting for service account")
+
+		f.Namespace = namespace
+
+		if TestContext.VerifyServiceAccount {
+			By("Waiting for a default service account to be provisioned in namespace")
+			err = WaitForDefaultServiceAccountInNamespace(f.ClientSet, namespace.Name)
+			Expect(err).NotTo(HaveOccurred())
+		} else {
+			Logf("Skipping waiting for service account")
+		}
 	}
 
 	if TestContext.GatherKubeSystemResourceUsageData != "false" && TestContext.GatherKubeSystemResourceUsageData != "none" {
+		var err error
 		f.gatherer, err = NewResourceUsageGatherer(f.ClientSet, ResourceGathererOptions{
 			inKubemark: ProviderIs("kubemark"),
 			masterOnly: TestContext.GatherKubeSystemResourceUsageData == "master",
@@ -280,9 +278,11 @@ func (f *Framework) AfterEach() {
 	// Print events if the test failed.
 	if CurrentGinkgoTestDescription().Failed && TestContext.DumpLogsOnFailure {
 		// Pass both unversioned client and and versioned clientset, till we have removed all uses of the unversioned client.
-		DumpAllNamespaceInfo(f.ClientSet, f.Namespace.Name)
+		if !f.SkipNamespaceCreation {
+			DumpAllNamespaceInfo(f.ClientSet, f.Namespace.Name)
+		}
 		By(fmt.Sprintf("Dumping a list of prepulled images on each node"))
-		LogContainersInPodsWithLabels(f.ClientSet, api.NamespaceSystem, ImagePullerLabels, "image-puller", Logf)
+		LogContainersInPodsWithLabels(f.ClientSet, metav1.NamespaceSystem, ImagePullerLabels, "image-puller", Logf)
 	}
 
 	summaries := make([]TestDataSummary, 0)
@@ -369,19 +369,19 @@ func (f *Framework) WaitForPodRunning(podName string) error {
 
 // WaitForPodReady waits for the pod to flip to ready in the namespace.
 func (f *Framework) WaitForPodReady(podName string) error {
-	return waitTimeoutForPodReadyInNamespace(f.ClientSet, podName, f.Namespace.Name, "", PodStartTimeout)
+	return waitTimeoutForPodReadyInNamespace(f.ClientSet, podName, f.Namespace.Name, PodStartTimeout)
 }
 
 // WaitForPodRunningSlow waits for the pod to run in the namespace.
 // It has a longer timeout then WaitForPodRunning (util.slowPodStartTimeout).
 func (f *Framework) WaitForPodRunningSlow(podName string) error {
-	return waitForPodRunningInNamespaceSlow(f.ClientSet, podName, f.Namespace.Name, "")
+	return waitForPodRunningInNamespaceSlow(f.ClientSet, podName, f.Namespace.Name)
 }
 
 // WaitForPodNoLongerRunning waits for the pod to no longer be running in the namespace, for either
 // success or failure.
 func (f *Framework) WaitForPodNoLongerRunning(podName string) error {
-	return WaitForPodNoLongerRunningInNamespace(f.ClientSet, podName, f.Namespace.Name, "")
+	return WaitForPodNoLongerRunningInNamespace(f.ClientSet, podName, f.Namespace.Name)
 }
 
 // TestContainerOutput runs the given pod in the given namespace and waits
@@ -404,7 +404,7 @@ func (f *Framework) WaitForAnEndpoint(serviceName string) error {
 	for {
 		// TODO: Endpoints client should take a field selector so we
 		// don't have to list everything.
-		list, err := f.ClientSet.Core().Endpoints(f.Namespace.Name).List(v1.ListOptions{})
+		list, err := f.ClientSet.Core().Endpoints(f.Namespace.Name).List(metav1.ListOptions{})
 		if err != nil {
 			return err
 		}
@@ -419,7 +419,7 @@ func (f *Framework) WaitForAnEndpoint(serviceName string) error {
 			}
 		}
 
-		options := v1.ListOptions{
+		options := metav1.ListOptions{
 			FieldSelector:   fields.Set{"metadata.name": serviceName}.AsSelector().String(),
 			ResourceVersion: rv,
 		}
@@ -728,10 +728,10 @@ func filterLabels(selectors map[string]string, cli clientset.Interface, ns strin
 	// everything manually.
 	if len(selectors) > 0 {
 		selector = labels.SelectorFromSet(labels.Set(selectors))
-		options := v1.ListOptions{LabelSelector: selector.String()}
+		options := metav1.ListOptions{LabelSelector: selector.String()}
 		pl, err = cli.Core().Pods(ns).List(options)
 	} else {
-		pl, err = cli.Core().Pods(ns).List(v1.ListOptions{})
+		pl, err = cli.Core().Pods(ns).List(metav1.ListOptions{})
 	}
 	return pl, err
 }

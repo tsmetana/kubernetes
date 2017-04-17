@@ -163,7 +163,7 @@ func (f *FakeControllerSource) getListItemsLocked() ([]runtime.Object, error) {
 }
 
 // List returns a list object, with its resource version set.
-func (f *FakeControllerSource) List(options v1.ListOptions) (runtime.Object, error) {
+func (f *FakeControllerSource) List(options metav1.ListOptions) (runtime.Object, error) {
 	f.lock.RLock()
 	defer f.lock.RUnlock()
 	list, err := f.getListItemsLocked()
@@ -174,17 +174,17 @@ func (f *FakeControllerSource) List(options v1.ListOptions) (runtime.Object, err
 	if err := meta.SetList(listObj, list); err != nil {
 		return nil, err
 	}
-	objMeta, err := metav1.ListMetaFor(listObj)
+	listAccessor, err := meta.ListAccessor(listObj)
 	if err != nil {
 		return nil, err
 	}
 	resourceVersion := len(f.changes)
-	objMeta.ResourceVersion = strconv.Itoa(resourceVersion)
+	listAccessor.SetResourceVersion(strconv.Itoa(resourceVersion))
 	return listObj, nil
 }
 
 // List returns a list object, with its resource version set.
-func (f *FakePVControllerSource) List(options v1.ListOptions) (runtime.Object, error) {
+func (f *FakePVControllerSource) List(options metav1.ListOptions) (runtime.Object, error) {
 	f.lock.RLock()
 	defer f.lock.RUnlock()
 	list, err := f.FakeControllerSource.getListItemsLocked()
@@ -195,17 +195,17 @@ func (f *FakePVControllerSource) List(options v1.ListOptions) (runtime.Object, e
 	if err := meta.SetList(listObj, list); err != nil {
 		return nil, err
 	}
-	objMeta, err := metav1.ListMetaFor(listObj)
+	listAccessor, err := meta.ListAccessor(listObj)
 	if err != nil {
 		return nil, err
 	}
 	resourceVersion := len(f.changes)
-	objMeta.ResourceVersion = strconv.Itoa(resourceVersion)
+	listAccessor.SetResourceVersion(strconv.Itoa(resourceVersion))
 	return listObj, nil
 }
 
 // List returns a list object, with its resource version set.
-func (f *FakePVCControllerSource) List(options v1.ListOptions) (runtime.Object, error) {
+func (f *FakePVCControllerSource) List(options metav1.ListOptions) (runtime.Object, error) {
 	f.lock.RLock()
 	defer f.lock.RUnlock()
 	list, err := f.FakeControllerSource.getListItemsLocked()
@@ -216,18 +216,18 @@ func (f *FakePVCControllerSource) List(options v1.ListOptions) (runtime.Object, 
 	if err := meta.SetList(listObj, list); err != nil {
 		return nil, err
 	}
-	objMeta, err := metav1.ListMetaFor(listObj)
+	listAccessor, err := meta.ListAccessor(listObj)
 	if err != nil {
 		return nil, err
 	}
 	resourceVersion := len(f.changes)
-	objMeta.ResourceVersion = strconv.Itoa(resourceVersion)
+	listAccessor.SetResourceVersion(strconv.Itoa(resourceVersion))
 	return listObj, nil
 }
 
 // Watch returns a watch, which will be pre-populated with all changes
 // after resourceVersion.
-func (f *FakeControllerSource) Watch(options v1.ListOptions) (watch.Interface, error) {
+func (f *FakeControllerSource) Watch(options metav1.ListOptions) (watch.Interface, error) {
 	f.lock.RLock()
 	defer f.lock.RUnlock()
 	rc, err := strconv.Atoi(options.ResourceVersion)

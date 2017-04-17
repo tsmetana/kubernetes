@@ -27,13 +27,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/watch"
+	testcore "k8s.io/client-go/testing"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 	coreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
-	testcore "k8s.io/kubernetes/pkg/client/testing/core"
 	deploymentutil "k8s.io/kubernetes/pkg/controller/deployment/util"
 )
 
@@ -429,6 +430,7 @@ func TestDeploymentStop(t *testing.T) {
 	deployment := extensions.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
+			UID:       uuid.NewUUID(),
 			Namespace: ns,
 		},
 		Spec: extensions.DeploymentSpec{
@@ -440,6 +442,7 @@ func TestDeploymentStop(t *testing.T) {
 		},
 	}
 	template := deploymentutil.GetNewReplicaSetTemplateInternal(&deployment)
+	trueVar := true
 	tests := []struct {
 		Name            string
 		Objs            []runtime.Object
@@ -473,11 +476,41 @@ func TestDeploymentStop(t *testing.T) {
 				&deployment, // GET
 				&extensions.ReplicaSetList{ // LIST
 					Items: []extensions.ReplicaSet{
+						// ReplicaSet owned by this Deployment.
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      name,
 								Namespace: ns,
 								Labels:    map[string]string{"k1": "v1"},
+								OwnerReferences: []metav1.OwnerReference{
+									{
+										APIVersion: extensions.SchemeGroupVersion.String(),
+										Kind:       "Deployment",
+										Name:       deployment.Name,
+										UID:        deployment.UID,
+										Controller: &trueVar,
+									},
+								},
+							},
+							Spec: extensions.ReplicaSetSpec{
+								Template: template,
+							},
+						},
+						// ReplicaSet owned by something else (should be ignored).
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "rs2",
+								Namespace: ns,
+								Labels:    map[string]string{"k1": "v1"},
+								OwnerReferences: []metav1.OwnerReference{
+									{
+										APIVersion: extensions.SchemeGroupVersion.String(),
+										Kind:       "Deployment",
+										Name:       "somethingelse",
+										UID:        uuid.NewUUID(),
+										Controller: &trueVar,
+									},
+								},
 							},
 							Spec: extensions.ReplicaSetSpec{
 								Template: template,
@@ -535,7 +568,7 @@ type noDeleteService struct {
 	coreclient.ServiceInterface
 }
 
-func (c *noDeleteService) Delete(service string, o *api.DeleteOptions) error {
+func (c *noDeleteService) Delete(service string, o *metav1.DeleteOptions) error {
 	return fmt.Errorf("I'm afraid I can't do that, Dave")
 }
 
@@ -570,11 +603,11 @@ func (c *reaperCoreFake) Services(namespace string) coreclient.ServiceInterface 
 }
 
 func pod() *api.Pod {
-	return &api.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: api.NamespaceDefault, Name: "foo"}}
+	return &api.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: metav1.NamespaceDefault, Name: "foo"}}
 }
 
 func service() *api.Service {
-	return &api.Service{ObjectMeta: metav1.ObjectMeta{Namespace: api.NamespaceDefault, Name: "foo"}}
+	return &api.Service{ObjectMeta: metav1.ObjectMeta{Namespace: metav1.NamespaceDefault, Name: "foo"}}
 }
 
 func TestSimpleStop(t *testing.T) {
@@ -591,8 +624,8 @@ func TestSimpleStop(t *testing.T) {
 			},
 			kind: api.Kind("Pod"),
 			actions: []testcore.Action{
-				testcore.NewGetAction(api.Resource("pods").WithVersion(""), api.NamespaceDefault, "foo"),
-				testcore.NewDeleteAction(api.Resource("pods").WithVersion(""), api.NamespaceDefault, "foo"),
+				testcore.NewGetAction(api.Resource("pods").WithVersion(""), metav1.NamespaceDefault, "foo"),
+				testcore.NewDeleteAction(api.Resource("pods").WithVersion(""), metav1.NamespaceDefault, "foo"),
 			},
 			expectError: false,
 			test:        "stop pod succeeds",
@@ -603,8 +636,8 @@ func TestSimpleStop(t *testing.T) {
 			},
 			kind: api.Kind("Service"),
 			actions: []testcore.Action{
-				testcore.NewGetAction(api.Resource("services").WithVersion(""), api.NamespaceDefault, "foo"),
-				testcore.NewDeleteAction(api.Resource("services").WithVersion(""), api.NamespaceDefault, "foo"),
+				testcore.NewGetAction(api.Resource("services").WithVersion(""), metav1.NamespaceDefault, "foo"),
+				testcore.NewDeleteAction(api.Resource("services").WithVersion(""), metav1.NamespaceDefault, "foo"),
 			},
 			expectError: false,
 			test:        "stop service succeeds",
@@ -626,7 +659,7 @@ func TestSimpleStop(t *testing.T) {
 			},
 			kind: api.Kind("Service"),
 			actions: []testcore.Action{
-				testcore.NewGetAction(api.Resource("services").WithVersion(""), api.NamespaceDefault, "foo"),
+				testcore.NewGetAction(api.Resource("services").WithVersion(""), metav1.NamespaceDefault, "foo"),
 			},
 			expectError: true,
 			test:        "stop service fails, can't delete",

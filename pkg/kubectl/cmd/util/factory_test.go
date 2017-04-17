@@ -25,18 +25,22 @@ import (
 	"os"
 	"os/user"
 	"path"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apiserver/pkg/util/flag"
+	manualfake "k8s.io/client-go/rest/fake"
+	testcore "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
@@ -44,13 +48,9 @@ import (
 	"k8s.io/kubernetes/pkg/api/validation"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
-	manualfake "k8s.io/kubernetes/pkg/client/restclient/fake"
-	testcore "k8s.io/kubernetes/pkg/client/testing/core"
-	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/kubectl"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
-	"k8s.io/kubernetes/pkg/util/flag"
 )
 
 func TestNewFactoryDefaultFlagBindings(t *testing.T) {
@@ -268,6 +268,7 @@ func TestRefetchSchemaWhenValidationFails(t *testing.T) {
 	requests := map[string]int{}
 
 	c := &manualfake.RESTClient{
+		APIRegistry:          api.Registry,
 		NegotiatedSerializer: testapi.Default.NegotiatedSerializer(),
 		Client: manualfake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			switch p, m := req.URL.Path, req.Method; {
@@ -325,6 +326,7 @@ func TestValidateCachesSchema(t *testing.T) {
 	requests := map[string]int{}
 
 	c := &manualfake.RESTClient{
+		APIRegistry:          api.Registry,
 		NegotiatedSerializer: testapi.Default.NegotiatedSerializer(),
 		Client: manualfake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			switch p, m := req.URL.Path, req.Method; {
@@ -439,7 +441,7 @@ func newPodList(count, isUnready, isUnhealthy int, labels map[string]string) *ap
 		newPod := api.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              fmt.Sprintf("pod-%d", i+1),
-				Namespace:         api.NamespaceDefault,
+				Namespace:         metav1.NamespaceDefault,
 				CreationTimestamp: metav1.Date(2016, time.April, 1, 1, 0, i, 0, time.UTC),
 				Labels:            labels,
 			},
@@ -485,7 +487,7 @@ func TestGetFirstPod(t *testing.T) {
 			expected: &api.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "pod-1",
-					Namespace:         api.NamespaceDefault,
+					Namespace:         metav1.NamespaceDefault,
 					CreationTimestamp: metav1.Date(2016, time.April, 1, 1, 0, 0, 0, time.UTC),
 					Labels:            map[string]string{"test": "selector"},
 				},
@@ -507,7 +509,7 @@ func TestGetFirstPod(t *testing.T) {
 			expected: &api.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "pod-2",
-					Namespace:         api.NamespaceDefault,
+					Namespace:         metav1.NamespaceDefault,
 					CreationTimestamp: metav1.Date(2016, time.April, 1, 1, 0, 1, 0, time.UTC),
 					Labels:            map[string]string{"test": "selector"},
 				},
@@ -530,7 +532,7 @@ func TestGetFirstPod(t *testing.T) {
 			expected: &api.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "pod-1",
-					Namespace:         api.NamespaceDefault,
+					Namespace:         metav1.NamespaceDefault,
 					CreationTimestamp: metav1.Date(2016, time.April, 1, 1, 0, 0, 0, time.UTC),
 					Labels:            map[string]string{"test": "selector"},
 				},
@@ -554,7 +556,7 @@ func TestGetFirstPod(t *testing.T) {
 					Object: &api.Pod{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "pod-1",
-							Namespace:         api.NamespaceDefault,
+							Namespace:         metav1.NamespaceDefault,
 							CreationTimestamp: metav1.Date(2016, time.April, 1, 1, 0, 0, 0, time.UTC),
 							Labels:            map[string]string{"test": "selector"},
 						},
@@ -573,7 +575,7 @@ func TestGetFirstPod(t *testing.T) {
 			expected: &api.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "pod-1",
-					Namespace:         api.NamespaceDefault,
+					Namespace:         metav1.NamespaceDefault,
 					CreationTimestamp: metav1.Date(2016, time.April, 1, 1, 0, 0, 0, time.UTC),
 					Labels:            map[string]string{"test": "selector"},
 				},
@@ -607,7 +609,7 @@ func TestGetFirstPod(t *testing.T) {
 		}
 		selector := labels.Set(labelSet).AsSelector()
 
-		pod, numPods, err := GetFirstPod(fake.Core(), api.NamespaceDefault, selector, 1*time.Minute, test.sortBy)
+		pod, numPods, err := GetFirstPod(fake.Core(), metav1.NamespaceDefault, selector, 1*time.Minute, test.sortBy)
 		pod.Spec.SecurityContext = nil
 		if !test.expectedErr && err != nil {
 			t.Errorf("%s: unexpected error: %v", test.name, err)
@@ -621,7 +623,7 @@ func TestGetFirstPod(t *testing.T) {
 			t.Errorf("%s: expected %d pods, got %d", test.name, test.expectedNum, numPods)
 			continue
 		}
-		if !reflect.DeepEqual(test.expected, pod) {
+		if !apiequality.Semantic.DeepEqual(test.expected, pod) {
 			t.Errorf("%s:\nexpected pod:\n%#v\ngot:\n%#v\n\n", test.name, test.expected, pod)
 		}
 	}
@@ -738,17 +740,21 @@ func TestDiscoveryReplaceAliases(t *testing.T) {
 		{
 			name:     "all-replacement",
 			arg:      "all",
-			expected: "pods,replicationcontrollers,services,statefulsets,horizontalpodautoscalers,jobs,deployments,replicasets",
+			expected: "pods,replicationcontrollers,services,statefulsets.apps,horizontalpodautoscalers.autoscaling,jobs.batch,deployments.extensions,replicasets.extensions",
 		},
 		{
 			name:     "alias-in-comma-separated-arg",
 			arg:      "all,secrets",
-			expected: "pods,replicationcontrollers,services,statefulsets,horizontalpodautoscalers,jobs,deployments,replicasets,secrets",
+			expected: "pods,replicationcontrollers,services,statefulsets.apps,horizontalpodautoscalers.autoscaling,jobs.batch,deployments.extensions,replicasets.extensions,secrets",
 		},
 	}
 
-	mapper := NewShortcutExpander(testapi.Default.RESTMapper(), nil)
-	b := resource.NewBuilder(mapper, api.Scheme, fakeClient(), testapi.Default.Codec())
+	ds := &fakeDiscoveryClient{}
+	mapper, err := NewShortcutExpander(testapi.Default.RESTMapper(), ds)
+	if err != nil {
+		t.Fatalf("Unable to create shortcut expander, err = %s", err.Error())
+	}
+	b := resource.NewBuilder(mapper, resource.LegacyCategoryExpander, api.Scheme, fakeClient(), testapi.Default.Codec())
 
 	for _, test := range tests {
 		replaced := b.ReplaceAliases(test.arg)

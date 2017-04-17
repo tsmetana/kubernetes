@@ -10,15 +10,12 @@ load(
 
 go_test(
     name = "go_default_test",
-    srcs = [
-        "certs_test.go",
-        "pki_helpers_test.go",
-    ],
+    srcs = ["certs_test.go"],
     library = ":go_default_library",
     tags = ["automanaged"],
     deps = [
         "//cmd/kubeadm/app/apis/kubeadm:go_default_library",
-        "//vendor:k8s.io/client-go/pkg/util/cert",
+        "//vendor/k8s.io/client-go/util/cert:go_default_library",
     ],
 )
 
@@ -27,13 +24,16 @@ go_library(
     srcs = [
         "certs.go",
         "doc.go",
-        "pki_helpers.go",
     ],
     tags = ["automanaged"],
     deps = [
         "//cmd/kubeadm/app/apis/kubeadm:go_default_library",
+        "//cmd/kubeadm/app/constants:go_default_library",
+        "//cmd/kubeadm/app/phases/certs/pkiutil:go_default_library",
         "//pkg/registry/core/service/ipallocator:go_default_library",
-        "//vendor:k8s.io/client-go/pkg/util/cert",
+        "//vendor/k8s.io/apimachinery/pkg/util/sets:go_default_library",
+        "//vendor/k8s.io/apimachinery/pkg/util/validation:go_default_library",
+        "//vendor/k8s.io/client-go/util/cert:go_default_library",
     ],
 )
 
@@ -46,6 +46,9 @@ filegroup(
 
 filegroup(
     name = "all-srcs",
-    srcs = [":package-srcs"],
+    srcs = [
+        ":package-srcs",
+        "//cmd/kubeadm/app/phases/certs/pkiutil:all-srcs",
+    ],
     tags = ["automanaged"],
 )

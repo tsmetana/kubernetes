@@ -17,161 +17,182 @@ limitations under the License.
 package kubeconfig
 
 import (
-	"crypto/ecdsa"
-	"crypto/rsa"
+	"bytes"
 	"crypto/x509"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
-	certutil "k8s.io/client-go/pkg/util/cert"
+	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	certphase "k8s.io/kubernetes/cmd/kubeadm/app/phases/certs"
-	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
+	certutil "k8s.io/client-go/util/cert"
+	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
+	"k8s.io/kubernetes/cmd/kubeadm/app/phases/certs/pkiutil"
+	kubeconfigutil "k8s.io/kubernetes/cmd/kubeadm/app/util/kubeconfig"
 )
 
-const (
-	KubernetesDirPermissions    = 0700
-	AdminKubeConfigFileName     = "admin.conf"
-	AdminKubeConfigClientName   = "kubernetes-admin"
-	KubeletKubeConfigFileName   = "kubelet.conf"
-	KubeletKubeConfigClientName = "kubelet"
-)
+// BuildConfigProperties holds some simple information about how this phase should build the KubeConfig object
+type BuildConfigProperties struct {
+	CertDir         string
+	ClientName      string
+	Organization    []string
+	APIServer       string
+	Token           string
+	MakeClientCerts bool
+}
 
-// This function is called from the main init and does the work for the default phase behaviour
 // TODO: Make an integration test for this function that runs after the certificates phase
 // and makes sure that those two phases work well together...
-func CreateAdminAndKubeletKubeConfig(masterEndpoint, pkiDir, outDir string) error {
-	// Parse the certificate from a file
-	caCertPath := path.Join(pkiDir, "ca.pem")
-	caCerts, err := certutil.CertsFromFile(caCertPath)
+
+// TODO: Integration test cases:
+// /etc/kubernetes/{admin,kubelet}.conf don't exist => generate kubeconfig files
+// /etc/kubernetes/{admin,kubelet}.conf and certs in /etc/kubernetes/pki exist => don't touch anything as long as everything's valid
+// /etc/kubernetes/{admin,kubelet}.conf exist but the server URL is invalid in those files => error
+// /etc/kubernetes/{admin,kubelet}.conf exist but the CA cert doesn't match what's in the pki dir => error
+// /etc/kubernetes/{admin,kubelet}.conf exist but not certs => certs will be generated and conflict with the kubeconfig files => error
+
+// CreateInitKubeConfigFiles is called from the main init and does the work for the default phase behaviour
+func CreateInitKubeConfigFiles(masterEndpoint, pkiDir, outDir string) error {
+
+	hostname, err := os.Hostname()
 	if err != nil {
-		return fmt.Errorf("couldn't load the CA cert file %s: %v", caCertPath, err)
-	}
-	// We are only putting one certificate in the CA certificate pem file, so it's safe to just use the first one
-	caCert := caCerts[0]
-
-	// Parse the rsa private key from a file
-	caKeyPath := path.Join(pkiDir, "ca-key.pem")
-	priv, err := certutil.PrivateKeyFromFile(caKeyPath)
-	if err != nil {
-		return fmt.Errorf("couldn't load the CA private key file %s: %v", caKeyPath, err)
-	}
-	var caKey *rsa.PrivateKey
-	switch k := priv.(type) {
-	case *rsa.PrivateKey:
-		caKey = k
-	case *ecdsa.PrivateKey:
-		// TODO: Abstract rsa.PrivateKey away and make certutil.NewSignedCert accept a ecdsa.PrivateKey as well
-		// After that, we can support generating kubeconfig files from ecdsa private keys as well
-		return fmt.Errorf("the CA private key file %s isn't in RSA format", caKeyPath)
-	default:
-		return fmt.Errorf("the CA private key file %s isn't in RSA format", caKeyPath)
+		return err
 	}
 
-	// User admin should have full access to the cluster
-	adminCertConfig := &certutil.Config{
-		CommonName:   AdminKubeConfigClientName,
-		Organization: []string{"system:masters"},
-	}
-	adminKubeConfigFilePath := path.Join(outDir, AdminKubeConfigFileName)
-	if err := createKubeConfigFileForClient(masterEndpoint, adminKubeConfigFilePath, adminCertConfig, caCert, caKey); err != nil {
-		return fmt.Errorf("couldn't create config for %s: %v", AdminKubeConfigClientName, err)
+	// Create a lightweight specification for what the files should look like
+	filesToCreateFromSpec := map[string]BuildConfigProperties{
+		kubeadmconstants.AdminKubeConfigFileName: {
+			ClientName:      "kubernetes-admin",
+			APIServer:       masterEndpoint,
+			CertDir:         pkiDir,
+			Organization:    []string{kubeadmconstants.MastersGroup},
+			MakeClientCerts: true,
+		},
+		kubeadmconstants.KubeletKubeConfigFileName: {
+			ClientName:      fmt.Sprintf("system:node:%s", hostname),
+			APIServer:       masterEndpoint,
+			CertDir:         pkiDir,
+			Organization:    []string{kubeadmconstants.NodesGroup},
+			MakeClientCerts: true,
+		},
+		kubeadmconstants.ControllerManagerKubeConfigFileName: {
+			ClientName:      kubeadmconstants.ControllerManagerUser,
+			APIServer:       masterEndpoint,
+			CertDir:         pkiDir,
+			MakeClientCerts: true,
+		},
+		kubeadmconstants.SchedulerKubeConfigFileName: {
+			ClientName:      kubeadmconstants.SchedulerUser,
+			APIServer:       masterEndpoint,
+			CertDir:         pkiDir,
+			MakeClientCerts: true,
+		},
 	}
 
-	// The kubelet should have limited access to the cluster
-	kubeletCertConfig := &certutil.Config{
-		CommonName:   KubeletKubeConfigClientName,
-		Organization: []string{"system:nodes"},
-	}
-	kubeletKubeConfigFilePath := path.Join(outDir, KubeletKubeConfigFileName)
-	if err := createKubeConfigFileForClient(masterEndpoint, kubeletKubeConfigFilePath, kubeletCertConfig, caCert, caKey); err != nil {
-		return fmt.Errorf("couldn't create config for %s: %v", KubeletKubeConfigClientName, err)
-	}
+	// Loop through all specs for kubeconfig files and create them if necessary
+	for filename, config := range filesToCreateFromSpec {
+		kubeconfig, err := buildKubeConfig(config)
+		if err != nil {
+			return err
+		}
 
-	// TODO make credentials for the controller manager and kube proxy
+		kubeConfigFilePath := filepath.Join(outDir, filename)
+		err = writeKubeconfigToDiskIfNotExists(kubeConfigFilePath, kubeconfig)
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
 
-func createKubeConfigFileForClient(masterEndpoint, kubeConfigFilePath string, config *certutil.Config, caCert *x509.Certificate, caKey *rsa.PrivateKey) error {
-	key, cert, err := certphase.NewClientKeyAndCert(config, caCert, caKey)
+// GetKubeConfigBytesFromSpec takes properties how to build a KubeConfig file and then returns the bytes of that file
+func GetKubeConfigBytesFromSpec(config BuildConfigProperties) ([]byte, error) {
+	kubeconfig, err := buildKubeConfig(config)
 	if err != nil {
-		return fmt.Errorf("failure while creating %s client certificate [%v]", config.CommonName, err)
+		return []byte{}, err
 	}
 
-	kubeConfig := MakeClientConfigWithCerts(
-		masterEndpoint,
+	kubeConfigBytes, err := clientcmd.Write(*kubeconfig)
+	if err != nil {
+		return []byte{}, err
+	}
+	return kubeConfigBytes, nil
+}
+
+// buildKubeConfig creates a kubeconfig object from some commonly specified properties in the struct above
+func buildKubeConfig(config BuildConfigProperties) (*clientcmdapi.Config, error) {
+
+	// Try to load ca.crt and ca.key from the PKI directory
+	caCert, caKey, err := pkiutil.TryLoadCertAndKeyFromDisk(config.CertDir, kubeadmconstants.CACertAndKeyBaseName)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't create a kubeconfig; the CA files couldn't be loaded: %v", err)
+	}
+
+	// If this file should have client certs, generate one from the spec
+	if config.MakeClientCerts {
+		certConfig := certutil.Config{
+			CommonName:   config.ClientName,
+			Organization: config.Organization,
+			Usages:       []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		}
+		cert, key, err := pkiutil.NewCertAndKey(caCert, caKey, certConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failure while creating %s client certificate [%v]", certConfig.CommonName, err)
+		}
+		return kubeconfigutil.CreateWithCerts(
+			config.APIServer,
+			"kubernetes",
+			config.ClientName,
+			certutil.EncodeCertPEM(caCert),
+			certutil.EncodePrivateKeyPEM(key),
+			certutil.EncodeCertPEM(cert),
+		), nil
+	}
+
+	// otherwise, create a kubeconfig with a token
+	return kubeconfigutil.CreateWithToken(
+		config.APIServer,
 		"kubernetes",
-		config.CommonName,
+		config.ClientName,
 		certutil.EncodeCertPEM(caCert),
-		certutil.EncodePrivateKeyPEM(key),
-		certutil.EncodeCertPEM(cert),
-	)
-
-	// Write it now to a file
-	return WriteKubeconfigToDisk(kubeConfigFilePath, kubeConfig)
+		config.Token,
+	), nil
 }
 
-func WriteKubeconfigToDisk(filepath string, kubeconfig *clientcmdapi.Config) error {
-	// Make sure the dir exists or can be created
-	if err := os.MkdirAll(path.Dir(filepath), KubernetesDirPermissions); err != nil {
-		return fmt.Errorf("failed to create directory %q [%v]", path.Dir(filepath), err)
+// writeKubeconfigToDiskIfNotExists saves the KubeConfig struct to disk if there isn't any file at the given path
+// If there already is a KubeConfig file at the given path; kubeadm tries to load it and check if the values in the
+// existing and the expected config equals. If they do; kubeadm will just skip writing the file as it's up-to-date,
+// but if a file exists but has old content or isn't a kubeconfig file, this function returns an error.
+func writeKubeconfigToDiskIfNotExists(filename string, expectedConfig *clientcmdapi.Config) error {
+	// Check if the file exist, and if it doesn't, just write it to disk
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		return kubeconfigutil.WriteToDisk(filename, expectedConfig)
 	}
 
-	// If err == nil, the file exists. Oops, we don't allow the file to exist already, fail.
-	if _, err := os.Stat(filepath); err == nil {
-		return fmt.Errorf("kubeconfig file %s already exists, but must not exist.", filepath)
+	// The kubeconfig already exists, let's check if it has got the same CA and server URL
+	currentConfig, err := clientcmd.LoadFromFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig that already exists on disk [%v]", err)
 	}
 
-	if err := clientcmd.WriteToFile(*kubeconfig, filepath); err != nil {
-		return fmt.Errorf("failed to write to %q [%v]", filepath, err)
+	expectedCtx := expectedConfig.CurrentContext
+	expectedCluster := expectedConfig.Contexts[expectedCtx].Cluster
+	currentCtx := currentConfig.CurrentContext
+	currentCluster := currentConfig.Contexts[currentCtx].Cluster
+	// If the current CA cert on disk doesn't match the expected CA cert, error out because we have a file, but it's stale
+	if !bytes.Equal(currentConfig.Clusters[currentCluster].CertificateAuthorityData, expectedConfig.Clusters[expectedCluster].CertificateAuthorityData) {
+		return fmt.Errorf("a kubeconfig file %q exists already but has got the wrong CA cert", filename)
+	}
+	// If the current API Server location on disk doesn't match the expected API server, error out because we have a file, but it's stale
+	if currentConfig.Clusters[currentCluster].Server != expectedConfig.Clusters[expectedCluster].Server {
+		return fmt.Errorf("a kubeconfig file %q exists already but has got the wrong API Server URL", filename)
 	}
 
-	fmt.Printf("[kubeconfig] Wrote KubeConfig file to disk: %q\n", filepath)
+	// kubeadm doesn't validate the existing kubeconfig file more than this (kubeadm trusts the client certs to be valid)
+	// Basically, if we find a kubeconfig file with the same path; the same CA cert and the same server URL;
+	// kubeadm thinks those files are equal and doesn't bother writing a new file
+	fmt.Printf("[kubeconfig] Using existing up-to-date KubeConfig file: %q\n", filename)
+
 	return nil
-}
-
-func createBasicClientConfig(serverURL string, clusterName string, userName string, caCert []byte) *clientcmdapi.Config {
-	config := clientcmdapi.NewConfig()
-
-	// Make a new cluster, specify the endpoint we'd like to talk to and the ca cert we're gonna use
-	cluster := clientcmdapi.NewCluster()
-	cluster.Server = serverURL
-	cluster.CertificateAuthorityData = caCert
-
-	// Specify a context where we're using that cluster and the username as the auth information
-	contextName := fmt.Sprintf("%s@%s", userName, clusterName)
-	context := clientcmdapi.NewContext()
-	context.Cluster = clusterName
-	context.AuthInfo = userName
-
-	// Lastly, apply the created objects above to the config
-	config.Clusters[clusterName] = cluster
-	config.Contexts[contextName] = context
-	config.CurrentContext = contextName
-	return config
-}
-
-// Creates a clientcmdapi.Config object with access to the API server with client certificates
-func MakeClientConfigWithCerts(serverURL, clusterName, userName string, caCert []byte, clientKey []byte, clientCert []byte) *clientcmdapi.Config {
-	config := createBasicClientConfig(serverURL, clusterName, userName, caCert)
-
-	authInfo := clientcmdapi.NewAuthInfo()
-	authInfo.ClientKeyData = clientKey
-	authInfo.ClientCertificateData = clientCert
-
-	config.AuthInfos[userName] = authInfo
-	return config
-}
-
-// Creates a clientcmdapi.Config object with access to the API server with a token
-func MakeClientConfigWithToken(serverURL, clusterName, userName string, caCert []byte, token string) *clientcmdapi.Config {
-	config := createBasicClientConfig(serverURL, clusterName, userName, caCert)
-
-	authInfo := clientcmdapi.NewAuthInfo()
-	authInfo.Token = token
-
-	config.AuthInfos[userName] = authInfo
-	return config
 }

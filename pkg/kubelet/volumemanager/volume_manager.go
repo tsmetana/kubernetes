@@ -26,13 +26,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	"k8s.io/kubernetes/pkg/kubelet/container"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/pod"
+	"k8s.io/kubernetes/pkg/kubelet/status"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
 	"k8s.io/kubernetes/pkg/kubelet/volumemanager/cache"
 	"k8s.io/kubernetes/pkg/kubelet/volumemanager/populator"
@@ -83,10 +84,6 @@ const (
 	// operation is waiting it only blocks other operations on the same device,
 	// other devices are not affected.
 	waitForAttachTimeout time.Duration = 10 * time.Minute
-
-	// reconcilerStartGracePeriod is the maximum amount of time volume manager
-	// can wait to start reconciler
-	reconcilerStartGracePeriod time.Duration = 60 * time.Second
 )
 
 // VolumeManager runs a set of asynchronous loops that figure out which volumes
@@ -122,8 +119,6 @@ type VolumeManager interface {
 	// attached to this node and remains "in use" until it is removed from both
 	// the desired state of the world and the actual state of the world, or it
 	// has been unmounted (as indicated in actual state of world).
-	// TODO(#27653): VolumesInUse should be handled gracefully on kubelet'
-	// restarts.
 	GetVolumesInUse() []v1.UniqueVolumeName
 
 	// ReconcilerStatesHasBeenSynced returns true only after the actual states in reconciler
@@ -151,6 +146,7 @@ func NewVolumeManager(
 	controllerAttachDetachEnabled bool,
 	nodeName k8stypes.NodeName,
 	podManager pod.Manager,
+	podStatusProvider status.PodStatusProvider,
 	kubeClient clientset.Interface,
 	volumePluginMgr *volume.VolumePluginMgr,
 	kubeContainerRuntime kubecontainer.Runtime,
@@ -191,6 +187,7 @@ func NewVolumeManager(
 		desiredStateOfWorldPopulatorLoopSleepPeriod,
 		desiredStateOfWorldPopulatorGetPodStatusRetryDuration,
 		podManager,
+		podStatusProvider,
 		vm.desiredStateOfWorld,
 		kubeContainerRuntime,
 		keepTerminatedPodVolumes)
@@ -299,8 +296,10 @@ func (vm *volumeManager) GetVolumesInUse() []v1.UniqueVolumeName {
 
 	for _, volume := range desiredVolumes {
 		if volume.PluginIsAttachable {
-			desiredVolumesMap[volume.VolumeName] = true
-			volumesToReportInUse = append(volumesToReportInUse, volume.VolumeName)
+			if _, exists := desiredVolumesMap[volume.VolumeName]; !exists {
+				desiredVolumesMap[volume.VolumeName] = true
+				volumesToReportInUse = append(volumesToReportInUse, volume.VolumeName)
+			}
 		}
 	}
 

@@ -17,13 +17,12 @@ limitations under the License.
 package v1beta1
 
 import (
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
-	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/api/v1"
 	v1beta1 "k8s.io/kubernetes/pkg/apis/certificates/v1beta1"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/scheme"
 )
 
 // CertificateSigningRequestsGetter has a method to return a CertificateSigningRequestInterface.
@@ -39,7 +38,7 @@ type CertificateSigningRequestInterface interface {
 	UpdateStatus(*v1beta1.CertificateSigningRequest) (*v1beta1.CertificateSigningRequest, error)
 	Delete(name string, options *v1.DeleteOptions) error
 	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
-	Get(name string, options meta_v1.GetOptions) (*v1beta1.CertificateSigningRequest, error)
+	Get(name string, options v1.GetOptions) (*v1beta1.CertificateSigningRequest, error)
 	List(opts v1.ListOptions) (*v1beta1.CertificateSigningRequestList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
 	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1beta1.CertificateSigningRequest, err error)
@@ -110,19 +109,19 @@ func (c *certificateSigningRequests) Delete(name string, options *v1.DeleteOptio
 func (c *certificateSigningRequests) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Resource("certificatesigningrequests").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
 }
 
 // Get takes name of the certificateSigningRequest, and returns the corresponding certificateSigningRequest object, and an error if there is any.
-func (c *certificateSigningRequests) Get(name string, options meta_v1.GetOptions) (result *v1beta1.CertificateSigningRequest, err error) {
+func (c *certificateSigningRequests) Get(name string, options v1.GetOptions) (result *v1beta1.CertificateSigningRequest, err error) {
 	result = &v1beta1.CertificateSigningRequest{}
 	err = c.client.Get().
 		Resource("certificatesigningrequests").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -133,7 +132,7 @@ func (c *certificateSigningRequests) List(opts v1.ListOptions) (result *v1beta1.
 	result = &v1beta1.CertificateSigningRequestList{}
 	err = c.client.Get().
 		Resource("certificatesigningrequests").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -141,10 +140,10 @@ func (c *certificateSigningRequests) List(opts v1.ListOptions) (result *v1beta1.
 
 // Watch returns a watch.Interface that watches the requested certificateSigningRequests.
 func (c *certificateSigningRequests) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Resource("certificatesigningrequests").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

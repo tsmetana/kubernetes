@@ -24,13 +24,13 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/util/uuid"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	. "github.com/onsi/ginkgo"
@@ -45,7 +45,8 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 		BeforeEach(func() {
 			podClient = f.PodClient()
 		})
-		It("should be submitted and removed [Conformance]", func() {
+		// Flaky issue #36821.
+		It("should be submitted and removed [Conformance] [Flaky]", func() {
 			By("creating the pod")
 			name := "pod-submit-remove-" + string(uuid.NewUUID())
 			value := strconv.Itoa(time.Now().Nanosecond())
@@ -69,11 +70,11 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 
 			By("setting up watch")
 			selector := labels.SelectorFromSet(labels.Set(map[string]string{"time": value}))
-			options := v1.ListOptions{LabelSelector: selector.String()}
+			options := metav1.ListOptions{LabelSelector: selector.String()}
 			pods, err := podClient.List(options)
 			Expect(err).NotTo(HaveOccurred(), "failed to query for pod")
 			Expect(len(pods.Items)).To(Equal(0))
-			options = v1.ListOptions{
+			options = metav1.ListOptions{
 				LabelSelector:   selector.String(),
 				ResourceVersion: pods.ListMeta.ResourceVersion,
 			}
@@ -85,7 +86,7 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 
 			By("verifying the pod is in kubernetes")
 			selector = labels.SelectorFromSet(labels.Set(map[string]string{"time": value}))
-			options = v1.ListOptions{LabelSelector: selector.String()}
+			options = metav1.ListOptions{LabelSelector: selector.String()}
 			pods, err = podClient.List(options)
 			Expect(err).NotTo(HaveOccurred(), "failed to query for pod")
 			Expect(len(pods.Items)).To(Equal(1))
@@ -164,7 +165,7 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 			deleted := false
 			timeout := false
 			var lastPod *v1.Pod
-			timer := time.After(30 * time.Second)
+			timer := time.After(1 * time.Minute)
 			for !deleted && !timeout {
 				select {
 				case event, _ := <-w.ResultChan():
@@ -184,7 +185,7 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 			Expect(lastPod.Spec.TerminationGracePeriodSeconds).ToNot(BeZero())
 
 			selector = labels.SelectorFromSet(labels.Set(map[string]string{"time": value}))
-			options = v1.ListOptions{LabelSelector: selector.String()}
+			options = metav1.ListOptions{LabelSelector: selector.String()}
 			pods, err = podClient.List(options)
 			Expect(err).NotTo(HaveOccurred(), "failed to query for pods")
 			Expect(len(pods.Items)).To(Equal(0))

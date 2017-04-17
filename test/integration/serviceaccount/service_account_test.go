@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -46,8 +47,9 @@ import (
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
+	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
+	internalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
 	"k8s.io/kubernetes/pkg/controller"
-	"k8s.io/kubernetes/pkg/controller/informers"
 	serviceaccountcontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 	serviceaccountadmission "k8s.io/kubernetes/plugin/pkg/admission/serviceaccount"
@@ -172,7 +174,7 @@ func TestServiceAccountTokenAutoCreate(t *testing.T) {
 	tokensToCleanup := sets.NewString(token1Name, token2Name, token3Name)
 	err = wait.Poll(time.Second, 10*time.Second, func() (bool, error) {
 		// Get all secrets in the namespace
-		secrets, err := c.Core().Secrets(ns).List(v1.ListOptions{})
+		secrets, err := c.Core().Secrets(ns).List(metav1.ListOptions{})
 		// Retrieval errors should fail
 		if err != nil {
 			return false, err
@@ -259,13 +261,13 @@ func TestServiceAccountTokenAutoMount(t *testing.T) {
 	if createdPod.Spec.ServiceAccountName != expectedServiceAccount {
 		t.Fatalf("Expected %s, got %s", expectedServiceAccount, createdPod.Spec.ServiceAccountName)
 	}
-	if !api.Semantic.DeepEqual(&expectedVolumes, &createdPod.Spec.Volumes) {
+	if !apiequality.Semantic.DeepEqual(&expectedVolumes, &createdPod.Spec.Volumes) {
 		t.Fatalf("Expected\n\t%#v\n\tgot\n\t%#v", expectedVolumes, createdPod.Spec.Volumes)
 	}
-	if !api.Semantic.DeepEqual(&expectedContainer1VolumeMounts, &createdPod.Spec.Containers[0].VolumeMounts) {
+	if !apiequality.Semantic.DeepEqual(&expectedContainer1VolumeMounts, &createdPod.Spec.Containers[0].VolumeMounts) {
 		t.Fatalf("Expected\n\t%#v\n\tgot\n\t%#v", expectedContainer1VolumeMounts, createdPod.Spec.Containers[0].VolumeMounts)
 	}
-	if !api.Semantic.DeepEqual(&expectedContainer2VolumeMounts, &createdPod.Spec.Containers[1].VolumeMounts) {
+	if !apiequality.Semantic.DeepEqual(&expectedContainer2VolumeMounts, &createdPod.Spec.Containers[1].VolumeMounts) {
 		t.Fatalf("Expected\n\t%#v\n\tgot\n\t%#v", expectedContainer2VolumeMounts, createdPod.Spec.Containers[1].VolumeMounts)
 	}
 }
@@ -405,7 +407,9 @@ func startServiceAccountTestServer(t *testing.T) (*clientset.Clientset, restclie
 
 	// Set up admission plugin to auto-assign serviceaccounts to pods
 	serviceAccountAdmission := serviceaccountadmission.NewServiceAccount()
-	serviceAccountAdmission.SetInternalClientSet(internalRootClientset)
+	serviceAccountAdmission.SetInternalKubeClientSet(internalRootClientset)
+	internalInformers := internalinformers.NewSharedInformerFactory(internalRootClientset, controller.NoResyncPeriodFunc())
+	serviceAccountAdmission.SetInternalKubeInformerFactory(internalInformers)
 
 	masterConfig := framework.NewMasterConfig()
 	masterConfig.GenericConfig.EnableIndex = true
@@ -419,16 +423,19 @@ func startServiceAccountTestServer(t *testing.T) (*clientset.Clientset, restclie
 	tokenController := serviceaccountcontroller.NewTokensController(rootClientset, serviceaccountcontroller.TokensControllerOptions{TokenGenerator: serviceaccount.JWTTokenGenerator(serviceAccountKey)})
 	go tokenController.Run(1, stopCh)
 
-	informers := informers.NewSharedInformerFactory(rootClientset, nil, controller.NoResyncPeriodFunc())
-	serviceAccountController := serviceaccountcontroller.NewServiceAccountsController(informers.ServiceAccounts(), informers.Namespaces(), rootClientset, serviceaccountcontroller.DefaultServiceAccountsControllerOptions())
+	informers := informers.NewSharedInformerFactory(rootClientset, controller.NoResyncPeriodFunc())
+	serviceAccountController := serviceaccountcontroller.NewServiceAccountsController(
+		informers.Core().V1().ServiceAccounts(),
+		informers.Core().V1().Namespaces(),
+		rootClientset,
+		serviceaccountcontroller.DefaultServiceAccountsControllerOptions(),
+	)
 	informers.Start(stopCh)
+	internalInformers.Start(stopCh)
 	go serviceAccountController.Run(5, stopCh)
-	// Start the admission plugin reflectors
-	serviceAccountAdmission.Run()
 
 	stop := func() {
 		close(stopCh)
-		serviceAccountAdmission.Stop()
 		apiServer.Close()
 	}
 
@@ -519,11 +526,11 @@ func doServiceAccountAPIRequests(t *testing.T, c *clientset.Clientset, ns string
 
 	readOps := []testOperation{
 		func() error {
-			_, err := c.Core().Secrets(ns).List(v1.ListOptions{})
+			_, err := c.Core().Secrets(ns).List(metav1.ListOptions{})
 			return err
 		},
 		func() error {
-			_, err := c.Core().Pods(ns).List(v1.ListOptions{})
+			_, err := c.Core().Pods(ns).List(metav1.ListOptions{})
 			return err
 		},
 	}

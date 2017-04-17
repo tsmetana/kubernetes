@@ -21,8 +21,8 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
-	api "k8s.io/kubernetes/pkg/api"
 	apps "k8s.io/kubernetes/pkg/apis/apps"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/scheme"
 )
 
 // StatefulSetsGetter has a method to return a StatefulSetInterface.
@@ -36,11 +36,11 @@ type StatefulSetInterface interface {
 	Create(*apps.StatefulSet) (*apps.StatefulSet, error)
 	Update(*apps.StatefulSet) (*apps.StatefulSet, error)
 	UpdateStatus(*apps.StatefulSet) (*apps.StatefulSet, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*apps.StatefulSet, error)
-	List(opts api.ListOptions) (*apps.StatefulSetList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
+	List(opts v1.ListOptions) (*apps.StatefulSetList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
 	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *apps.StatefulSet, err error)
 	StatefulSetExpansion
 }
@@ -101,7 +101,7 @@ func (c *statefulSets) UpdateStatus(statefulSet *apps.StatefulSet) (result *apps
 }
 
 // Delete takes name of the statefulSet and deletes it. Returns an error if one occurs.
-func (c *statefulSets) Delete(name string, options *api.DeleteOptions) error {
+func (c *statefulSets) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("statefulsets").
@@ -112,11 +112,11 @@ func (c *statefulSets) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *statefulSets) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *statefulSets) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("statefulsets").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -129,31 +129,31 @@ func (c *statefulSets) Get(name string, options v1.GetOptions) (result *apps.Sta
 		Namespace(c.ns).
 		Resource("statefulsets").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
 }
 
 // List takes label and field selectors, and returns the list of StatefulSets that match those selectors.
-func (c *statefulSets) List(opts api.ListOptions) (result *apps.StatefulSetList, err error) {
+func (c *statefulSets) List(opts v1.ListOptions) (result *apps.StatefulSetList, err error) {
 	result = &apps.StatefulSetList{}
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("statefulsets").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
 }
 
 // Watch returns a watch.Interface that watches the requested statefulSets.
-func (c *statefulSets) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *statefulSets) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("statefulsets").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

@@ -17,15 +17,16 @@ limitations under the License.
 package kubemark
 
 import (
-	"time"
-
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
+	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
+	clientv1 "k8s.io/client-go/pkg/api/v1"
+	"k8s.io/client-go/tools/record"
 	proxyapp "k8s.io/kubernetes/cmd/kube-proxy/app"
 	"k8s.io/kubernetes/cmd/kube-proxy/app/options"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
 	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
-	"k8s.io/kubernetes/pkg/client/record"
+	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
 	proxyconfig "k8s.io/kubernetes/pkg/proxy/config"
 	"k8s.io/kubernetes/pkg/util"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
@@ -39,13 +40,16 @@ type HollowProxy struct {
 
 type FakeProxyHandler struct{}
 
-func (*FakeProxyHandler) OnServiceUpdate(services []api.Service)      {}
-func (*FakeProxyHandler) OnEndpointsUpdate(endpoints []api.Endpoints) {}
+func (*FakeProxyHandler) OnServiceUpdate(services []*api.Service)                  {}
+func (*FakeProxyHandler) OnEndpointsAdd(endpoints *api.Endpoints)                  {}
+func (*FakeProxyHandler) OnEndpointsUpdate(oldEndpoints, endpoints *api.Endpoints) {}
+func (*FakeProxyHandler) OnEndpointsDelete(endpoints *api.Endpoints)               {}
+func (*FakeProxyHandler) OnEndpointsSynced()                                       {}
 
 type FakeProxier struct{}
 
-func (*FakeProxier) OnServiceUpdate(services []api.Service) {}
-func (*FakeProxier) Sync()                                  {}
+func (*FakeProxier) OnServiceUpdate(services []*api.Service) {}
+func (*FakeProxier) Sync()                                   {}
 func (*FakeProxier) SyncLoop() {
 	select {}
 }
@@ -53,8 +57,10 @@ func (*FakeProxier) SyncLoop() {
 func NewHollowProxyOrDie(
 	nodeName string,
 	client clientset.Interface,
+	eventClient v1core.EventsGetter,
 	endpointsConfig *proxyconfig.EndpointsConfig,
 	serviceConfig *proxyconfig.ServiceConfig,
+	informerFactory informers.SharedInformerFactory,
 	iptInterface utiliptables.Interface,
 	broadcaster record.EventBroadcaster,
 	recorder record.EventRecorder,
@@ -63,20 +69,18 @@ func NewHollowProxyOrDie(
 	config := options.NewProxyConfig()
 	config.OOMScoreAdj = util.Int32Ptr(0)
 	config.ResourceContainer = ""
-	config.NodeRef = &v1.ObjectReference{
+	config.NodeRef = &clientv1.ObjectReference{
 		Kind:      "Node",
 		Name:      nodeName,
 		UID:       types.UID(nodeName),
 		Namespace: "",
 	}
-	proxyconfig.NewSourceAPI(
-		client.Core().RESTClient(),
-		30*time.Second,
-		serviceConfig.Channel("api"),
-		endpointsConfig.Channel("api"),
-	)
 
-	hollowProxy, err := proxyapp.NewProxyServer(client, config, iptInterface, &FakeProxier{}, broadcaster, recorder, nil, "fake")
+	go endpointsConfig.Run(wait.NeverStop)
+	go serviceConfig.Run(wait.NeverStop)
+	go informerFactory.Start(wait.NeverStop)
+
+	hollowProxy, err := proxyapp.NewProxyServer(client, eventClient, config, iptInterface, &FakeProxier{}, broadcaster, recorder, nil, "fake")
 	if err != nil {
 		glog.Fatalf("Error while creating ProxyServer: %v\n", err)
 	}

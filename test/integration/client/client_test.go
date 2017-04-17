@@ -28,7 +28,9 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -61,7 +63,7 @@ func TestClient(t *testing.T) {
 		t.Errorf("expected %#v, got %#v", e, a)
 	}
 
-	pods, err := client.Core().Pods(ns.Name).List(v1.ListOptions{})
+	pods, err := client.Core().Pods(ns.Name).List(metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +102,7 @@ func TestClient(t *testing.T) {
 	}
 
 	// pod is shown, but not scheduled
-	pods, err = client.Core().Pods(ns.Name).List(v1.ListOptions{})
+	pods, err = client.Core().Pods(ns.Name).List(metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,14 +269,44 @@ func TestPatch(t *testing.T) {
 	pb := patchBodies[c.Core().RESTClient().APIVersion()]
 
 	execPatch := func(pt types.PatchType, body []byte) error {
-		return c.Core().RESTClient().Patch(pt).
+		result := c.Core().RESTClient().Patch(pt).
 			Resource(resource).
 			Namespace(ns.Name).
 			Name(name).
 			Body(body).
-			Do().
-			Error()
+			Do()
+		if result.Error() != nil {
+			return result.Error()
+		}
+
+		// trying to chase flakes, this should give us resource versions of objects as we step through
+		jsonObj, err := result.Raw()
+		if err != nil {
+			t.Log(err)
+		} else {
+			t.Logf("%v", string(jsonObj))
+		}
+
+		obj, err := result.Get()
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata, err := meta.Accessor(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// this call waits for the resourceVersion to be reached in the cache before returning.  We need to do this because
+		// the patch gets its initial object from the storage, and the cache serves that.  If it is out of date,
+		// then our initial patch is applied to an old resource version, which conflicts and then the updated object shows
+		// a conflicting diff, which permanently fails the patch.  This gives expected stability in the patch without
+		// retrying on an known number of conflicts below in the test.
+		if _, err := c.Core().Pods(ns.Name).Get(name, metav1.GetOptions{ResourceVersion: metadata.GetResourceVersion()}); err != nil {
+			t.Fatal(err)
+		}
+
+		return nil
 	}
+
 	for k, v := range pb {
 		// add label
 		err := execPatch(k, v.AddLabelBody)
@@ -491,11 +523,11 @@ func TestSingleWatch(t *testing.T) {
 	}
 
 	w, err := client.Core().RESTClient().Get().
-		Prefix("watch").
 		Namespace(ns.Name).
 		Resource("events").
-		Name("event-9").
 		Param("resourceVersion", rv1).
+		Param("watch", "true").
+		FieldsSelectorParam(fields.OneTermEqualSelector("metadata.name", "event-9")).
 		Watch()
 
 	if err != nil {
@@ -588,7 +620,7 @@ func TestMultiWatch(t *testing.T) {
 			t.Fatalf("Couldn't make %v: %v", name, err)
 		}
 		go func(name, rv string) {
-			options := v1.ListOptions{
+			options := metav1.ListOptions{
 				LabelSelector:   labels.Set{"watchlabel": name}.AsSelector().String(),
 				ResourceVersion: rv,
 			}
@@ -764,7 +796,7 @@ func runSelfLinkTestOnNamespace(t *testing.T, c clientset.Interface, namespace s
 		t.Errorf("Failed listing pod with supplied self link '%v': %v", pod.SelfLink, err)
 	}
 
-	podList, err := c.Core().Pods(namespace).List(v1.ListOptions{})
+	podList, err := c.Core().Pods(namespace).List(metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Failed listing pods: %v", err)
 	}

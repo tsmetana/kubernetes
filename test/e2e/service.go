@@ -25,6 +25,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/api/v1/service"
@@ -32,7 +33,6 @@ import (
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/controller/endpoint"
-	"k8s.io/kubernetes/pkg/util/intstr"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	. "github.com/onsi/ginkgo"
@@ -66,7 +66,7 @@ var _ = framework.KubeDescribe("Services", func() {
 	// TODO: We get coverage of TCP/UDP and multi-port services through the DNS test. We should have a simpler test for multi-port TCP here.
 
 	It("should provide secure master service [Conformance]", func() {
-		_, err := cs.Core().Services(v1.NamespaceDefault).Get("kubernetes", metav1.GetOptions{})
+		_, err := cs.Core().Services(metav1.NamespaceDefault).Get("kubernetes", metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -215,6 +215,16 @@ var _ = framework.KubeDescribe("Services", func() {
 	})
 
 	It("should preserve source pod IP for traffic thru service cluster IP", func() {
+
+		// This behavior is not supported if Kube-proxy is in "userspace" mode.
+		// So we check the kube-proxy mode and skip this test if that's the case.
+		if proxyMode, err := framework.ProxyMode(f); err == nil {
+			if proxyMode == "userspace" {
+				framework.Skipf("The test doesn't work with kube-proxy in userspace mode")
+			}
+		} else {
+			framework.Logf("Couldn't detect KubeProxy mode - test failure may be expected: %v", err)
+		}
 
 		serviceName := "sourceip-test"
 		ns := f.Namespace.Name
@@ -1137,7 +1147,7 @@ var _ = framework.KubeDescribe("Services", func() {
 
 		By("Remove pods immediately")
 		label := labels.SelectorFromSet(labels.Set(t.Labels))
-		options := v1.ListOptions{LabelSelector: label.String()}
+		options := metav1.ListOptions{LabelSelector: label.String()}
 		podClient := t.Client.Core().Pods(f.Namespace.Name)
 		pods, err := podClient.List(options)
 		if err != nil {
@@ -1145,7 +1155,7 @@ var _ = framework.KubeDescribe("Services", func() {
 		} else {
 			for _, pod := range pods.Items {
 				var gracePeriodSeconds int64 = 0
-				err := podClient.Delete(pod.Name, &v1.DeleteOptions{GracePeriodSeconds: &gracePeriodSeconds})
+				err := podClient.Delete(pod.Name, &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriodSeconds})
 				if err != nil {
 					framework.Logf("warning: error force deleting pod '%s': %s", pod.Name, err)
 				}

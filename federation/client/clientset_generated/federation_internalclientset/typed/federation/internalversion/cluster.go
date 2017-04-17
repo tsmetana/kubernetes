@@ -22,7 +22,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	federation "k8s.io/kubernetes/federation/apis/federation"
-	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/scheme"
 )
 
 // ClustersGetter has a method to return a ClusterInterface.
@@ -36,11 +36,11 @@ type ClusterInterface interface {
 	Create(*federation.Cluster) (*federation.Cluster, error)
 	Update(*federation.Cluster) (*federation.Cluster, error)
 	UpdateStatus(*federation.Cluster) (*federation.Cluster, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*federation.Cluster, error)
-	List(opts api.ListOptions) (*federation.ClusterList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
+	List(opts v1.ListOptions) (*federation.ClusterList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
 	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *federation.Cluster, err error)
 	ClusterExpansion
 }
@@ -96,7 +96,7 @@ func (c *clusters) UpdateStatus(cluster *federation.Cluster) (result *federation
 }
 
 // Delete takes name of the cluster and deletes it. Returns an error if one occurs.
-func (c *clusters) Delete(name string, options *api.DeleteOptions) error {
+func (c *clusters) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Resource("clusters").
 		Name(name).
@@ -106,10 +106,10 @@ func (c *clusters) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *clusters) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *clusters) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Resource("clusters").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -121,29 +121,29 @@ func (c *clusters) Get(name string, options v1.GetOptions) (result *federation.C
 	err = c.client.Get().
 		Resource("clusters").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
 }
 
 // List takes label and field selectors, and returns the list of Clusters that match those selectors.
-func (c *clusters) List(opts api.ListOptions) (result *federation.ClusterList, err error) {
+func (c *clusters) List(opts v1.ListOptions) (result *federation.ClusterList, err error) {
 	result = &federation.ClusterList{}
 	err = c.client.Get().
 		Resource("clusters").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
 }
 
 // Watch returns a watch.Interface that watches the requested clusters.
-func (c *clusters) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *clusters) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Resource("clusters").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

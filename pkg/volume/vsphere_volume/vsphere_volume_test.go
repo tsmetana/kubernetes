@@ -23,7 +23,7 @@ import (
 	"testing"
 
 	"k8s.io/apimachinery/pkg/types"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/util/mount"
 	"k8s.io/kubernetes/pkg/volume"
@@ -63,8 +63,8 @@ func getFakeDeviceName(host volume.VolumeHost, volPath string) string {
 	return path.Join(host.GetPluginDir(vsphereVolumePluginName), "device", volPath)
 }
 
-func (fake *fakePDManager) CreateVolume(v *vsphereVolumeProvisioner) (vmDiskPath string, volumeSizeKB int, err error) {
-	return "[local] test-volume-name.vmdk", 100, nil
+func (fake *fakePDManager) CreateVolume(v *vsphereVolumeProvisioner) (vmDiskPath string, volumeSizeKB int, fstype string, err error) {
+	return "[local] test-volume-name.vmdk", 100, "ext4", nil
 }
 
 func (fake *fakePDManager) DeleteVolume(vd *vsphereVolumeDeleter) error {

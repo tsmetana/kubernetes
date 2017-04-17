@@ -14,25 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-source "${KUBE_ROOT}/cluster/gce/util.sh"
-
-detect-project &> /dev/null
-export PROJECT
-
-RETRIES=3
-# Runs gcloud compute command with the given parameters. Up to $RETRIES will be made
-# to execute the command.
-# arguments:
+# Wrapper for gcloud compute, running it $RETRIES times in case of failures.
+# Args:
 # $@: all stuff that goes after 'gcloud compute'
 function run-gcloud-compute-with-retries {
+  RETRIES="${RETRIES:-3}"
   for attempt in $(seq 1 ${RETRIES}); do
-    local -r gcloud_cmd_hash=`echo "gcloud compute $@" | md5sum | cut -f1 -d" "`
-    local -r gcloud_logfile="/tmp/gcloud_${gcloud_cmd_hash}.log"
-    echo "" > ${gcloud_logfile}
-    if ! gcloud compute "$@" |& tee ${gcloud_logfile}; then
-      if [[ $(grep -c "already exists" ${gcloud_logfile}) -gt 0 ]]; then
+    local -r gcloud_result=$(gcloud compute "$@" 2>&1)
+    local -r ret_val="$?"
+    echo "${gcloud_result}"
+    if [[ "${ret_val}" -ne "0" ]]; then
+      if [[ $(echo "${gcloud_result}" | grep -c "already exists") -gt 0 ]]; then
         if [[ "${attempt}" == 1 ]]; then
-          echo -e "${color_red} Failed to $1 $2 $3 as the resource hasn't been deleted from a previous run.${color_norm}" >& 2
+          echo -e "${color_red}Failed to $1 $2 $3 as the resource hasn't been deleted from a previous run.${color_norm}" >& 2
           exit 1
         fi
         echo -e "${color_yellow}Succeeded to $1 $2 $3 in the previous attempt, but status response wasn't received.${color_norm}"
@@ -45,7 +39,7 @@ function run-gcloud-compute-with-retries {
       return 0
     fi
   done
-  echo -e "${color_red} Failed to $1 $2 $3.${color_norm}" >& 2
+  echo -e "${color_red}Failed to $1 $2 $3.${color_norm}" >& 2
   exit 1
 }
 
@@ -82,6 +76,9 @@ function create-master-instance-with-resources {
     --scopes "storage-ro,compute-rw,logging-write" \
     --boot-disk-size "${MASTER_ROOT_DISK_SIZE}" \
     --disk "name=${MASTER_NAME}-pd,device-name=master-pd,mode=rw,boot=no,auto-delete=no"
+
+  run-gcloud-compute-with-retries instances add-metadata "${MASTER_NAME}" \
+    --metadata-from-file startup-script="${KUBE_ROOT}/test/kubemark/resources/start-kubemark-master.sh"
   
   if [ "${EVENT_PD:-false}" == "true" ]; then
     echo "Attaching ${MASTER_NAME}-event-pd to ${MASTER_NAME}"

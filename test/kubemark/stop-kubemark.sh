@@ -22,9 +22,13 @@ source "${KUBE_ROOT}/test/kubemark/skeleton/util.sh"
 source "${KUBE_ROOT}/test/kubemark/cloud-provider-config.sh"
 source "${KUBE_ROOT}/test/kubemark/${CLOUD_PROVIDER}/util.sh"
 source "${KUBE_ROOT}/cluster/kubemark/${CLOUD_PROVIDER}/config-default.sh"
+source "${KUBE_ROOT}/cluster/kubemark/util.sh"
 
 KUBECTL="${KUBE_ROOT}/cluster/kubectl.sh"
-RESOURCE_DIRECTORY="${KUBE_ROOT}/test/kubemark/resources"
+KUBEMARK_DIRECTORY="${KUBE_ROOT}/test/kubemark"
+RESOURCE_DIRECTORY="${KUBEMARK_DIRECTORY}/resources"
+
+detect-project &> /dev/null
 
 "${KUBECTL}" delete -f "${RESOURCE_DIRECTORY}/addons" &> /dev/null || true
 "${KUBECTL}" delete -f "${RESOURCE_DIRECTORY}/hollow-node.json" &> /dev/null || true

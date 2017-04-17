@@ -42,10 +42,16 @@ type GroupVersionFactoryArgs struct {
 
 // GroupMetaFactoryArgs contains the group-level args of a GroupMetaFactory.
 type GroupMetaFactoryArgs struct {
+	// GroupName is the name of the API-Group
+	//
+	// example: 'servicecatalog.k8s.io'
 	GroupName              string
 	VersionPreferenceOrder []string
-	ImportPrefix           string
-
+	// ImportPrefix is the base go package of the API-Group
+	//
+	// example: 'k8s.io/kubernetes/pkg/apis/autoscaling'
+	ImportPrefix string
+	// RootScopedKinds are resources that are not namespaced.
 	RootScopedKinds sets.String // nil is allowed
 	IgnoredKinds    sets.String // nil is allowed
 
@@ -72,14 +78,14 @@ func NewGroupMetaFactory(groupArgs *GroupMetaFactoryArgs, versions VersionToSche
 
 // Announce adds this Group factory to the global factory registry. It should
 // only be called if you constructed the GroupMetaFactory yourself via
-// NewGroupMetadFactory.
+// NewGroupMetaFactory.
 // Note that this will panic on an error, since it's expected that you'll be
 // calling this at initialization time and any error is a result of a
 // programmer importing the wrong set of packages. If this assumption doesn't
 // work for you, just call DefaultGroupFactoryRegistry.AnnouncePreconstructedFactory
 // yourself.
-func (gmf *GroupMetaFactory) Announce() *GroupMetaFactory {
-	if err := DefaultGroupFactoryRegistry.AnnouncePreconstructedFactory(gmf); err != nil {
+func (gmf *GroupMetaFactory) Announce(groupFactoryRegistry APIGroupFactoryRegistry) *GroupMetaFactory {
+	if err := groupFactoryRegistry.AnnouncePreconstructedFactory(gmf); err != nil {
 		panic(err)
 	}
 	return gmf

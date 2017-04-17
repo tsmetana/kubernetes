@@ -24,16 +24,17 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/api/v1"
 	endptspkg "k8s.io/kubernetes/pkg/api/v1/endpoints"
-	"k8s.io/kubernetes/pkg/client/cache"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
 	"k8s.io/kubernetes/pkg/controller"
-	"k8s.io/kubernetes/pkg/util/intstr"
 )
 
 var alwaysReady = func() bool { return true }
@@ -92,8 +93,27 @@ func makeTestServer(t *testing.T, namespace string, endpointsResponse serverResp
 	return httptest.NewServer(mux), &fakeEndpointsHandler
 }
 
+type endpointController struct {
+	*EndpointController
+	podStore     cache.Store
+	serviceStore cache.Store
+}
+
+func newController(url string) *endpointController {
+	client := clientset.NewForConfigOrDie(&restclient.Config{Host: url, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
+	informerFactory := informers.NewSharedInformerFactory(client, controller.NoResyncPeriodFunc())
+	endpoints := NewEndpointController(informerFactory.Core().V1().Pods(), informerFactory.Core().V1().Services(), client)
+	endpoints.podsSynced = alwaysReady
+	endpoints.servicesSynced = alwaysReady
+	return &endpointController{
+		endpoints,
+		informerFactory.Core().V1().Pods().Informer().GetStore(),
+		informerFactory.Core().V1().Services().Informer().GetStore(),
+	}
+}
+
 func TestSyncEndpointsItemsPreserveNoSelector(t *testing.T) {
-	ns := v1.NamespaceDefault
+	ns := metav1.NamespaceDefault
 	testServer, endpointsHandler := makeTestServer(t, ns,
 		serverResponse{http.StatusOK, &v1.Endpoints{
 			ObjectMeta: metav1.ObjectMeta{
@@ -107,10 +127,8 @@ func TestSyncEndpointsItemsPreserveNoSelector(t *testing.T) {
 			}},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints := newController(testServer.URL)
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec:       v1.ServiceSpec{Ports: []v1.ServicePort{{Port: 80}}},
 	})
@@ -119,10 +137,10 @@ func TestSyncEndpointsItemsPreserveNoSelector(t *testing.T) {
 }
 
 func TestCheckLeftoverEndpoints(t *testing.T) {
-	ns := v1.NamespaceDefault
-	// Note that this requests *all* endpoints, therefore the NamespaceAll
+	ns := metav1.NamespaceDefault
+	// Note that this requests *all* endpoints, therefore metav1.NamespaceAll
 	// below.
-	testServer, _ := makeTestServer(t, v1.NamespaceAll,
+	testServer, _ := makeTestServer(t, metav1.NamespaceAll,
 		serverResponse{http.StatusOK, &v1.EndpointsList{
 			ListMeta: metav1.ListMeta{
 				ResourceVersion: "1",
@@ -140,9 +158,7 @@ func TestCheckLeftoverEndpoints(t *testing.T) {
 			}},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
+	endpoints := newController(testServer.URL)
 	endpoints.checkLeftoverEndpoints()
 
 	if e, a := 1, endpoints.queue.Len(); e != a {
@@ -169,12 +185,10 @@ func TestSyncEndpointsProtocolTCP(t *testing.T) {
 			}},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
+	endpoints := newController(testServer.URL)
 
-	addPods(endpoints.podStore.Indexer, ns, 1, 1, 0)
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	addPods(endpoints.podStore, ns, 1, 1, 0)
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{},
@@ -212,11 +226,9 @@ func TestSyncEndpointsProtocolUDP(t *testing.T) {
 			}},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 1, 1, 0)
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 1, 1, 0)
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{},
@@ -251,11 +263,9 @@ func TestSyncEndpointsItemsEmptySelectorSelectsAll(t *testing.T) {
 			Subsets: []v1.EndpointSubset{},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 1, 1, 0)
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 1, 1, 0)
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{},
@@ -289,11 +299,9 @@ func TestSyncEndpointsItemsEmptySelectorSelectsAllNotReady(t *testing.T) {
 			Subsets: []v1.EndpointSubset{},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 0, 1, 1)
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 0, 1, 1)
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{},
@@ -327,11 +335,9 @@ func TestSyncEndpointsItemsEmptySelectorSelectsAllMixed(t *testing.T) {
 			Subsets: []v1.EndpointSubset{},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 1, 1, 1)
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 1, 1, 1)
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{},
@@ -369,11 +375,9 @@ func TestSyncEndpointsItemsPreexisting(t *testing.T) {
 			}},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 1, 1, 0)
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 1, 1, 0)
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{"foo": "bar"},
@@ -396,8 +400,8 @@ func TestSyncEndpointsItemsPreexisting(t *testing.T) {
 }
 
 func TestSyncEndpointsItemsPreexistingIdentical(t *testing.T) {
-	ns := v1.NamespaceDefault
-	testServer, endpointsHandler := makeTestServer(t, v1.NamespaceDefault,
+	ns := metav1.NamespaceDefault
+	testServer, endpointsHandler := makeTestServer(t, metav1.NamespaceDefault,
 		serverResponse{http.StatusOK, &v1.Endpoints{
 			ObjectMeta: metav1.ObjectMeta{
 				ResourceVersion: "1",
@@ -410,19 +414,17 @@ func TestSyncEndpointsItemsPreexistingIdentical(t *testing.T) {
 			}},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, v1.NamespaceDefault, 1, 1, 0)
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: v1.NamespaceDefault},
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, metav1.NamespaceDefault, 1, 1, 0)
+	endpoints.serviceStore.Add(&v1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: metav1.NamespaceDefault},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{"foo": "bar"},
 			Ports:    []v1.ServicePort{{Port: 80, Protocol: "TCP", TargetPort: intstr.FromInt(8080)}},
 		},
 	})
 	endpoints.syncService(ns + "/foo")
-	endpointsHandler.ValidateRequest(t, testapi.Default.ResourcePath("endpoints", v1.NamespaceDefault, "foo"), "GET", nil)
+	endpointsHandler.ValidateRequest(t, testapi.Default.ResourcePath("endpoints", metav1.NamespaceDefault, "foo"), "GET", nil)
 }
 
 func TestSyncEndpointsItems(t *testing.T) {
@@ -430,12 +432,10 @@ func TestSyncEndpointsItems(t *testing.T) {
 	testServer, endpointsHandler := makeTestServer(t, ns,
 		serverResponse{http.StatusOK, &v1.Endpoints{}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 3, 2, 0)
-	addPods(endpoints.podStore.Indexer, "blah", 5, 2, 0) // make sure these aren't found!
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 3, 2, 0)
+	addPods(endpoints.podStore, "blah", 5, 2, 0) // make sure these aren't found!
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: ns},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{"foo": "bar"},
@@ -473,12 +473,10 @@ func TestSyncEndpointsItemsWithLabels(t *testing.T) {
 	testServer, endpointsHandler := makeTestServer(t, ns,
 		serverResponse{http.StatusOK, &v1.Endpoints{}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 3, 2, 0)
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 3, 2, 0)
 	serviceLabels := map[string]string{"foo": "bar"}
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: ns,
@@ -534,12 +532,10 @@ func TestSyncEndpointsItemsPreexistingLabelsChange(t *testing.T) {
 			}},
 		}})
 	defer testServer.Close()
-	client := clientset.NewForConfigOrDie(&restclient.Config{Host: testServer.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	endpoints := NewEndpointControllerFromClient(client, controller.NoResyncPeriodFunc)
-	endpoints.podStoreSynced = alwaysReady
-	addPods(endpoints.podStore.Indexer, ns, 1, 1, 0)
+	endpoints := newController(testServer.URL)
+	addPods(endpoints.podStore, ns, 1, 1, 0)
 	serviceLabels := map[string]string{"baz": "blah"}
-	endpoints.serviceStore.Indexer.Add(&v1.Service{
+	endpoints.serviceStore.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: ns,

@@ -21,7 +21,7 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
-	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/scheme"
 	extensions "k8s.io/kubernetes/pkg/apis/extensions"
 )
 
@@ -36,11 +36,11 @@ type DeploymentInterface interface {
 	Create(*extensions.Deployment) (*extensions.Deployment, error)
 	Update(*extensions.Deployment) (*extensions.Deployment, error)
 	UpdateStatus(*extensions.Deployment) (*extensions.Deployment, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*extensions.Deployment, error)
-	List(opts api.ListOptions) (*extensions.DeploymentList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
+	List(opts v1.ListOptions) (*extensions.DeploymentList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
 	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *extensions.Deployment, err error)
 	DeploymentExpansion
 }
@@ -101,7 +101,7 @@ func (c *deployments) UpdateStatus(deployment *extensions.Deployment) (result *e
 }
 
 // Delete takes name of the deployment and deletes it. Returns an error if one occurs.
-func (c *deployments) Delete(name string, options *api.DeleteOptions) error {
+func (c *deployments) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("deployments").
@@ -112,11 +112,11 @@ func (c *deployments) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *deployments) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *deployments) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("deployments").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -129,31 +129,31 @@ func (c *deployments) Get(name string, options v1.GetOptions) (result *extension
 		Namespace(c.ns).
 		Resource("deployments").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
 }
 
 // List takes label and field selectors, and returns the list of Deployments that match those selectors.
-func (c *deployments) List(opts api.ListOptions) (result *extensions.DeploymentList, err error) {
+func (c *deployments) List(opts v1.ListOptions) (result *extensions.DeploymentList, err error) {
 	result = &extensions.DeploymentList{}
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("deployments").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
 }
 
 // Watch returns a watch.Interface that watches the requested deployments.
-func (c *deployments) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *deployments) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("deployments").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

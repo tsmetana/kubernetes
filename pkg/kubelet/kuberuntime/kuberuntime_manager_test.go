@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kubetypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/pkg/util/flowcontrol"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	apitest "k8s.io/kubernetes/pkg/kubelet/api/testing"
@@ -58,7 +58,7 @@ func createTestRuntimeManager() (*apitest.FakeRuntimeService, *apitest.FakeImage
 		network.UseDefaultMTU,
 	)
 	osInterface := &containertest.FakeOS{}
-	manager, err := NewFakeKubeRuntimeManager(fakeRuntimeService, fakeImageService, machineInfo, networkPlugin, osInterface)
+	manager, err := NewFakeKubeRuntimeManager(fakeRuntimeService, fakeImageService, machineInfo, networkPlugin, osInterface, &containertest.FakeRuntimeHelper{})
 	return fakeRuntimeService, fakeImageService, manager, err
 }
 

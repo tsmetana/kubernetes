@@ -16,14 +16,16 @@ go_library(
         "//pkg/api:go_default_library",
         "//pkg/api/v1:go_default_library",
         "//pkg/client/clientset_generated/clientset:go_default_library",
-        "//pkg/client/clientset_generated/clientset/typed/core/v1:go_default_library",
-        "//pkg/client/record:go_default_library",
+        "//pkg/client/informers/informers_generated/externalversions:go_default_library",
         "//plugin/pkg/scheduler:go_default_library",
         "//plugin/pkg/scheduler/algorithmprovider:go_default_library",
         "//plugin/pkg/scheduler/factory:go_default_library",
         "//test/integration/framework:go_default_library",
-        "//vendor:github.com/golang/glog",
-        "//vendor:k8s.io/client-go/rest",
+        "//vendor/github.com/golang/glog:go_default_library",
+        "//vendor/k8s.io/client-go/kubernetes/typed/core/v1:go_default_library",
+        "//vendor/k8s.io/client-go/pkg/api/v1:go_default_library",
+        "//vendor/k8s.io/client-go/rest:go_default_library",
+        "//vendor/k8s.io/client-go/tools/record:go_default_library",
     ],
 )
 
@@ -40,9 +42,9 @@ go_test(
         "//plugin/pkg/scheduler:go_default_library",
         "//test/integration/framework:go_default_library",
         "//test/utils:go_default_library",
-        "//vendor:github.com/golang/glog",
-        "//vendor:github.com/renstrom/dedent",
-        "//vendor:k8s.io/apimachinery/pkg/apis/meta/v1",
+        "//vendor/github.com/golang/glog:go_default_library",
+        "//vendor/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library",
+        "//vendor/k8s.io/apimachinery/pkg/labels:go_default_library",
     ],
 )
 

@@ -11,6 +11,7 @@ load(
 go_binary(
     name = "kubeadm",
     library = ":go_default_library",
+    linkstamp = "k8s.io/kubernetes/pkg/version",
     tags = ["automanaged"],
 )
 
@@ -33,7 +34,7 @@ filegroup(
     srcs = [
         ":package-srcs",
         "//cmd/kubeadm/app:all-srcs",
-        "//cmd/kubeadm/test:all-srcs",
+        "//cmd/kubeadm/test/cmd:all-srcs",
     ],
     tags = ["automanaged"],
 )

@@ -27,17 +27,17 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
-	"k8s.io/kubernetes/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/uuid"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/util/io"
 	"k8s.io/kubernetes/pkg/util/mount"
 	utilstrings "k8s.io/kubernetes/pkg/util/strings"
-	"k8s.io/kubernetes/pkg/util/uuid"
 	. "k8s.io/kubernetes/pkg/volume"
 )
 
@@ -127,6 +127,12 @@ func (f *fakeVolumeHost) GetNodeAllocatable() (v1.ResourceList, error) {
 	return v1.ResourceList{}, nil
 }
 
+func (f *fakeVolumeHost) GetSecretFunc() func(namespace, name string) (*v1.Secret, error) {
+	return func(namespace, name string) (*v1.Secret, error) {
+		return f.kubeClient.Core().Secrets(namespace).Get(name, metav1.GetOptions{})
+	}
+}
+
 func ProbeVolumePlugins(config VolumeConfig) []VolumePlugin {
 	if _, ok := config.OtherAttributes["fake-property"]; ok {
 		return []VolumePlugin{
@@ -194,6 +200,14 @@ func (plugin *FakeVolumePlugin) CanSupport(spec *Spec) bool {
 }
 
 func (plugin *FakeVolumePlugin) RequiresRemount() bool {
+	return false
+}
+
+func (plugin *FakeVolumePlugin) SupportsMountOption() bool {
+	return true
+}
+
+func (plugin *FakeVolumePlugin) SupportsBulkVolumeVerification() bool {
 	return false
 }
 
@@ -269,8 +283,8 @@ func (plugin *FakeVolumePlugin) GetNewDetacherCallCount() int {
 	return plugin.NewDetacherCallCount
 }
 
-func (plugin *FakeVolumePlugin) NewRecycler(pvName string, spec *Spec, eventRecorder RecycleEventRecorder) (Recycler, error) {
-	return &fakeRecycler{"/attributesTransferredFromSpec", MetricsNil{}}, nil
+func (plugin *FakeVolumePlugin) Recycle(pvName string, spec *Spec, eventRecorder RecycleEventRecorder) error {
+	return nil
 }
 
 func (plugin *FakeVolumePlugin) NewDeleter(spec *Spec) (Deleter, error) {
@@ -439,20 +453,6 @@ func (fv *FakeVolume) UnmountDevice(globalMountPath string) error {
 	defer fv.Unlock()
 	fv.UnmountDeviceCallCount++
 	return nil
-}
-
-type fakeRecycler struct {
-	path string
-	MetricsNil
-}
-
-func (fr *fakeRecycler) Recycle() error {
-	// nil is success, else error
-	return nil
-}
-
-func (fr *fakeRecycler) GetPath() string {
-	return fr.path
 }
 
 type FakeDeleter struct {
@@ -753,4 +753,14 @@ func CreateTestPVC(capacity string, accessModes []v1.PersistentVolumeAccessMode)
 		},
 	}
 	return &claim
+}
+
+func MetricsEqualIgnoreTimestamp(a *Metrics, b *Metrics) bool {
+	available := a.Available == b.Available
+	capacity := a.Capacity == b.Capacity
+	used := a.Used == b.Used
+	inodes := a.Inodes == b.Inodes
+	inodesFree := a.InodesFree == b.InodesFree
+	inodesUsed := a.InodesUsed == b.InodesUsed
+	return available && capacity && used && inodes && inodesFree && inodesUsed
 }

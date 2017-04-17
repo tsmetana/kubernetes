@@ -31,7 +31,7 @@ import (
 
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	"github.com/stretchr/testify/mock"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
@@ -39,6 +39,7 @@ import (
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
 	"k8s.io/kubernetes/pkg/kubelet/network"
 	"k8s.io/kubernetes/pkg/kubelet/network/cni/testing"
+	networktest "k8s.io/kubernetes/pkg/kubelet/network/testing"
 	utilexec "k8s.io/kubernetes/pkg/util/exec"
 )
 
@@ -111,6 +112,7 @@ func tearDownPlugin(tmpDir string) {
 }
 
 type fakeNetworkHost struct {
+	networktest.FakePortMappingGetter
 	kubeClient clientset.Interface
 	runtime    kubecontainer.Runtime
 }
@@ -213,7 +215,7 @@ func TestCNIPlugin(t *testing.T) {
 	}
 
 	// Set up the pod
-	err = plug.SetUpPod("podNamespace", "podName", containerID)
+	err = plug.SetUpPod("podNamespace", "podName", containerID, map[string]string{})
 	if err != nil {
 		t.Errorf("Expected nil: %v", err)
 	}
