@@ -3910,3 +3910,213 @@ const (
 	// DefaultFailureDomains defines the set of label keys used when TopologyKey is empty in PreferredDuringScheduling anti-affinity.
 	DefaultFailureDomains string = metav1.LabelHostname + "," + metav1.LabelZoneFailureDomain + "," + metav1.LabelZoneRegion
 )
+
+type VolumeSnapshotStatus struct {
+	// The time the snapshot was successfully created
+	// +optional
+	CreationTimestamp metav1.Time
+
+	// Representes the lates available observations about the volume snapshot
+	Conditions []VolumeSnapshotCondition
+}
+
+type VolumeSnapshotConditionType string
+
+// These are valid conditions of a volume snapshot.
+const (
+	// VolumeSnapshotReadey is added when the snapshot has been successfully created and is ready to be used.
+	VolumeSnapshotConditionReady VolumeSnapshotConditionType = "Ready"
+)
+
+// VolumeSnapshot Condition describes the state of a volume snapshot  at a certain point.
+type VolumeSnapshotCondition struct {
+	// Type of replication controller condition.
+	Type VolumeSnapshotConditionType
+	// Status of the condition, one of True, False, Unknown.
+	Status ConditionStatus
+	// The last time the condition transitioned from one status to another.
+	// +optional
+	LastTransitionTime metav1.Time
+	// The reason for the condition's last transition.
+	// +optional
+	Reason string
+	// A human readable message indicating details about the transition.
+	// +optional
+	Message string
+}
+
+// The volume snapshot object accessible to the user. Upon succesful creation of the actual
+// snapshot by the volume provider it is bound to the corresponding VolumeSnapshotData through
+// the VolumeSnapshotSpec
+type VolumeSnapshot struct {
+	metav1.TypeMeta
+	// +optional
+	metav1.ObjectMeta
+
+	// Spec represents the desired state of the snapshot
+	// +optional
+	Spec VolumeSnapshotSpec
+
+	// Status represents the latest observer state of the snapshot
+	// +optional
+	Status VolumeSnapshotStatus
+}
+
+type VolumeSnapshotList struct {
+	metav1.TypeMeta
+	// +optional
+	metav1.ListMeta
+	Items []VolumeSnapshot
+}
+
+// The desired state of the volume snapshot
+type VolumeSnapshotSpec struct {
+	// PersistentVolumeClaimName is the name of the PVC being snapshotted
+	PersistentVolumeClaimName string
+
+	// SnapshotDataName binds the VolumeSnapshot object with the VolumeSnapshotData
+	SnapshotDataName string
+}
+
+// The actual state of the volume snapshot
+type VolumeSnapshotDataStatus struct {
+	// The time the snapshot was successfully created
+	// +optional
+	CreationTimestamp metav1.Time
+
+	// Representes the lates available observations about the volume snapshot
+	Conditions []VolumeSnapshotDataCondition
+}
+
+type VolumeSnapshotDataConditionType string
+
+// These are valid conditions of a volume snapshot.
+const (
+	// VolumeSnapshotDataReady is added when the on-disk snapshot has been successfully created.
+	VolumeSnapshotDataConditionReady VolumeSnapshotDataConditionType = "Ready"
+)
+
+// VolumeSnapshot Condition describes the state of a volume snapshot  at a certain point.
+type VolumeSnapshotDataCondition struct {
+	// Type of volume snapshot condition.
+	Type VolumeSnapshotDataConditionType
+	// Status of the condition, one of True, False, Unknown.
+	Status ConditionStatus
+	// The last time the condition transitioned from one status to another.
+	// +optional
+	LastTransitionTime metav1.Time
+	// The reason for the condition's last transition.
+	// +optional
+	Reason string
+	// A human readable message indicating details about the transition.
+	// +optional
+	Message string
+}
+
+// VolumeSnapshotData represents the actual "on-disk" snapshot object
+type VolumeSnapshotData struct {
+	metav1.TypeMeta
+	// +optional
+	metav1.ObjectMeta
+
+	// Spec represents the desired state of the snapshot
+	// +optional
+	Spec VolumeSnapshotDataSpec
+
+	// Status represents the latest observed state of the snapshot
+	// +optional
+	Status VolumeSnapshotDataStatus
+}
+
+type VolumeSnapshotDataList struct {
+	metav1.TypeMeta
+	// +optional
+	metav1.ListMeta
+	Items []VolumeSnapshotData
+}
+
+// The desired state of the volume snapshot
+type VolumeSnapshotDataSpec struct {
+	// Source represents the location and type of the volume snapshot
+	VolumeSnapshotDataSource
+
+	// VolumeSnapshotRef is part of bi-directional binding between VolumeSnapshot
+	// and VolumeSnapshotData
+	// +optional
+	VolumeSnapshotRef *ObjectReference
+
+	// PersistentVolumeRef represents the PersistentVolume that the snapshot has been
+	// taken from
+	// +optional
+	PersistentVolumeRef *ObjectReference
+}
+
+// Represents the actual location and type of the snapshot. Only one of its members may be specified.
+type VolumeSnapshotDataSource struct {
+	// GCEPersistentDisk represents a GCE Disk resource that is attached to a
+	// kubelet's host machine and then exposed to the pod.
+	// +optional
+	GCEPersistentDisk *GCEPersistentDiskVolumeSource
+	// AWSElasticBlockStore represents an AWS EBS disk that is attached to a
+	// kubelet's host machine and then exposed to the pod.
+	// +optional
+	AWSElasticBlockStore *AWSElasticBlockStoreVolumeSource
+	// HostPath represents a directory on the host.
+	// Provisioned by a developer or tester.
+	// This is useful for single-node development and testing only!
+	// On-host storage is not supported in any way and WILL NOT WORK in a multi-node cluster.
+	// +optional
+	HostPath *HostPathVolumeSource
+	// Glusterfs represents a Glusterfs volume that is attached to a host and exposed to the pod
+	// +optional
+	Glusterfs *GlusterfsVolumeSource
+	// NFS represents an NFS mount on the host that shares a pod's lifetime
+	// +optional
+	NFS *NFSVolumeSource
+	// RBD represents a Rados Block Device mount on the host that shares a pod's lifetime
+	// +optional
+	RBD *RBDVolumeSource
+	// Quobyte represents a Quobyte mount on the host that shares a pod's lifetime
+	// +optional
+	Quobyte *QuobyteVolumeSource
+	// ISCSIVolumeSource represents an ISCSI resource that is attached to a
+	// kubelet's host machine and then exposed to the pod.
+	// +optional
+	ISCSI *ISCSIVolumeSource
+	// FlexVolume represents a generic volume resource that is
+	// provisioned/attached using an exec based plugin. This is an alpha feature and may change in future.
+	// +optional
+	FlexVolume *FlexVolumeSource
+	// Cinder represents a cinder volume attached and mounted on kubelets host machine
+	// +optional
+	Cinder *CinderVolumeSource
+	// CephFS represents a Ceph FS mount on the host that shares a pod's lifetime
+	// +optional
+	CephFS *CephFSVolumeSource
+	// FC represents a Fibre Channel resource that is attached to a kubelet's host machine and then exposed to the pod.
+	// +optional
+	FC *FCVolumeSource
+	// Flocker represents a Flocker volume attached to a kubelet's host machine. This depends on the Flocker control service being running
+	// +optional
+	Flocker *FlockerVolumeSource
+	// AzureFile represents an Azure File Service mount on the host and bind mount to the pod.
+	// +optional
+	AzureFile *AzureFileVolumeSource
+	// VsphereVolume represents a vSphere volume attached and mounted on kubelets host machine
+	// +optional
+	VsphereVolume *VsphereVirtualDiskVolumeSource
+	// AzureDisk represents an Azure Data Disk mount on the host and bind mount to the pod.
+	// +optional
+	AzureDisk *AzureDiskVolumeSource
+	// PhotonPersistentDisk represents a Photon Controller persistent disk attached and mounted on kubelets host machine
+	PhotonPersistentDisk *PhotonPersistentDiskVolumeSource
+	// PortworxVolume represents a portworx volume attached and mounted on kubelets host machine
+	// +optional
+	PortworxVolume *PortworxVolumeSource
+	// ScaleIO represents a ScaleIO persistent volume attached and mounted on Kubernetes nodes.
+	// +optional
+	ScaleIO *ScaleIOVolumeSource
+	// Local represents directly-attached storage with node affinity
+	// +optional
+	Local *LocalVolumeSource
+}

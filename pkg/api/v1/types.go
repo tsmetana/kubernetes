@@ -4540,3 +4540,227 @@ const (
 	// and data streams for a single forwarded connection
 	PortForwardRequestIDHeader = "requestID"
 )
+
+type VolumeSnapshotStatus struct {
+	// The time the snapshot was successfully created
+	// +optional
+	CreationTimestamp metav1.Time `json:"creationTimestamp" protobuf:"bytes,1,opt,name=creationTimestamp"`
+
+	// Representes the lates available observations about the volume snapshot
+	Conditions []VolumeSnapshotCondition `json:"conditions" protobuf:"bytes,2,rep,name=conditions"`
+}
+
+type VolumeSnapshotConditionType string
+
+// These are valid conditions of a volume snapshot.
+const (
+	// VolumeSnapshotReadey is added when the snapshot has been successfully created and is ready to be used.
+	VolumeSnapshotConditionReady VolumeSnapshotConditionType = "Ready"
+)
+
+// VolumeSnapshot Condition describes the state of a volume snapshot  at a certain point.
+type VolumeSnapshotCondition struct {
+	// Type of replication controller condition.
+	Type VolumeSnapshotConditionType `json:"type" protobuf:"bytes,1,opt,name=type,casttype=VolumeSnapshotConditionType"`
+	// Status of the condition, one of True, False, Unknown.
+	Status ConditionStatus `json:"status" protobuf:"bytes,2,opt,name=status,casttype=ConditionStatus"`
+	// The last time the condition transitioned from one status to another.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime" protobuf:"bytes,3,opt,name=lastTransitionTime"`
+	// The reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason" protobuf:"bytes,4,opt,name=reason"`
+	// A human readable message indicating details about the transition.
+	// +optional
+	Message string `json:"message" protobuf:"bytes,5,opt,name=message"`
+}
+
+// +genclient=true
+
+// The volume snapshot object accessible to the user. Upon succesful creation of the actual
+// snapshot by the volume provider it is bound to the corresponding VolumeSnapshotData through
+// the VolumeSnapshotSpec
+type VolumeSnapshot struct {
+	metav1.TypeMeta `json:",inline"`
+	// +optional
+	metav1.ObjectMeta `json:"metadata" protobuf:"bytes,1,opt,name=metadata"`
+
+	// Spec represents the desired state of the snapshot
+	// +optional
+	Spec VolumeSnapshotSpec `json:"spec" protobuf:"bytes,2,opt,name=spec"`
+
+	// Status represents the latest observer state of the snapshot
+	// +optional
+	Status VolumeSnapshotStatus `json:"status" protobuf:"bytes,3,opt,name=status"`
+}
+
+type VolumeSnapshotList struct {
+	metav1.TypeMeta `json:",inline"`
+	// +optional
+	metav1.ListMeta `json:"metadata"`
+	Items           []VolumeSnapshot `json:"items"`
+}
+
+// The desired state of the volume snapshot
+type VolumeSnapshotSpec struct {
+	// PersistentVolumeClaimName is the name of the PVC being snapshotted
+	PersistentVolumeClaimName string `json:"persistentVolumeClaimName" protobuf:"bytes,1,opt,name=persistentVolumeClaimName"`
+
+	// SnapshotDataName binds the VolumeSnapshot object with the VolumeSnapshotData
+	SnapshotDataName string `json:"snapshotDataName" protobuf:"bytes,2,opt,name=snapshotDataName"`
+}
+
+// The actual state of the volume snapshot
+type VolumeSnapshotDataStatus struct {
+	// The time the snapshot was successfully created
+	// +optional
+	CreationTimestamp metav1.Time `json:"creationTimestamp" protobuf:"bytes,1,opt,name=creationTimestamp"`
+
+	// Representes the lates available observations about the volume snapshot
+	Conditions []VolumeSnapshotDataCondition `json:"conditions" protobuf:"bytes,2,rep,name=conditions"`
+}
+
+type VolumeSnapshotDataList struct {
+	metav1.TypeMeta `json:",inline"`
+	// +optional
+	metav1.ListMeta `json:"metadata"`
+	Items           []VolumeSnapshot `json:"items"`
+}
+
+type VolumeSnapshotDataConditionType string
+
+// These are valid conditions of a volume snapshot.
+const (
+	// VolumeSnapshotDataReady is added when the on-disk snapshot has been successfully created.
+	VolumeSnapshotDataConditionReady VolumeSnapshotDataConditionType = "Ready"
+)
+
+// VolumeSnapshot Condition describes the state of a volume snapshot  at a certain point.
+type VolumeSnapshotDataCondition struct {
+	// Type of volume snapshot condition.
+	Type VolumeSnapshotDataConditionType `json:"type" protobuf:"bytes,1,opt,name=type,casttype=VolumeSnapshotDataConditionType"`
+	// Status of the condition, one of True, False, Unknown.
+	Status ConditionStatus `json:"status" protobuf:"bytes,2,opt,name=status,casttype=ConditionStatus"`
+	// The last time the condition transitioned from one status to another.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime" protobuf:"bytes,3,opt,name=lastTransitionTime"`
+	// The reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason" protobuf:"bytes,4,opt,name=reason"`
+	// A human readable message indicating details about the transition.
+	// +optional
+	Message string `json:"message" protobuf:"bytes,5,opt,name=message"`
+}
+
+// +genclient=true
+// +nonNamespaced=true
+
+// VolumeSnapshotData represents the actual "on-disk" snapshot object
+type VolumeSnapshotData struct {
+	metav1.TypeMeta `json:",inline"`
+	// +optional
+	metav1.ObjectMeta `json:"metadata" protobuf:"bytes,1,opt,name=metadata"`
+
+	// Spec represents the desired state of the snapshot
+	// +optional
+	Spec VolumeSnapshotDataSpec `json:"spec" protobuf:"bytes,2,opt,name=spec"`
+
+	// Status represents the latest observed state of the snapshot
+	// +optional
+	Status VolumeSnapshotDataStatus `json:"status" protobuf:"bytes,3,opt,name=status"`
+}
+
+// The desired state of the volume snapshot
+type VolumeSnapshotDataSpec struct {
+	// Source represents the location and type of the volume snapshot
+	VolumeSnapshotDataSource `json:",inline" protobuf:"bytes,1,opt,name=volumeSnapshotDataSource"`
+
+	// VolumeSnapshotRef is part of bi-directional binding between VolumeSnapshot
+	// and VolumeSnapshotData
+	// +optional
+	VolumeSnapshotRef *ObjectReference `json:"volumeSnapshotRef" protobuf:"bytes,2,opt,name=volumeSnapshotRef"`
+
+	// PersistentVolumeRef represents the PersistentVolume that the snapshot has been
+	// taken from
+	// +optional
+	PersistentVolumeRef *ObjectReference `json:"persistentVolumeRef" protobuf:"bytes,3,opt,name=persistentVolumeRef"`
+}
+
+// Represents the actual location and type of the snapshot. Only one of its members may be specified.
+type VolumeSnapshotDataSource struct {
+	// GCEPersistentDisk represents a GCE Disk resource that is attached to a
+	// kubelet's host machine and then exposed to the pod. Provisioned by an admin.
+	// More info: https://kubernetes.io/docs/concepts/storage/volumes#gcepersistentdisk
+	// +optional
+	GCEPersistentDisk *GCEPersistentDiskVolumeSource `json:"gcePersistentDisk" protobuf:"bytes,1,opt,name=gcePersistentDisk"`
+	// AWSElasticBlockStore represents an AWS Disk resource that is attached to a
+	// kubelet's host machine and then exposed to the pod.
+	// More info: https://kubernetes.io/docs/concepts/storage/volumes#awselasticblockstore
+	// +optional
+	AWSElasticBlockStore *AWSElasticBlockStoreVolumeSource `json:"awsElasticBlockStore" protobuf:"bytes,2,opt,name=awsElasticBlockStore"`
+	// HostPath represents a directory on the host.
+	// Provisioned by a developer or tester.
+	// This is useful for single-node development and testing only!
+	// On-host storage is not supported in any way and WILL NOT WORK in a multi-node cluster.
+	// More info: https://kubernetes.io/docs/concepts/storage/volumes#hostpath
+	// +optional
+	HostPath *HostPathVolumeSource `json:"hostPath" protobuf:"bytes,3,opt,name=hostPath"`
+	// Glusterfs represents a Glusterfs volume that is attached to a host and
+	// exposed to the pod. Provisioned by an admin.
+	// More info: https://releases.k8s.io/HEAD/examples/volumes/glusterfs/README.md
+	// +optional
+	Glusterfs *GlusterfsVolumeSource `json:"glusterfs" protobuf:"bytes,4,opt,name=glusterfs"`
+	// NFS represents an NFS mount on the host. Provisioned by an admin.
+	// More info: https://kubernetes.io/docs/concepts/storage/volumes#nfs
+	// +optional
+	NFS *NFSVolumeSource `json:"nfs" protobuf:"bytes,5,opt,name=nfs"`
+	// RBD represents a Rados Block Device mount on the host that shares a pod's lifetime.
+	// More info: https://releases.k8s.io/HEAD/examples/volumes/rbd/README.md
+	// +optional
+	RBD *RBDVolumeSource `json:"rbd" protobuf:"bytes,6,opt,name=rbd"`
+	// ISCSI represents an ISCSI Disk resource that is attached to a
+	// kubelet's host machine and then exposed to the pod. Provisioned by an admin.
+	// +optional
+	ISCSI *ISCSIVolumeSource `json:"iscsi" protobuf:"bytes,7,opt,name=iscsi"`
+	// Cinder represents a cinder volume attached and mounted on kubelets host machine
+	// More info: https://releases.k8s.io/HEAD/examples/mysql-cinder-pd/README.md
+	// +optional
+	Cinder *CinderVolumeSource `json:"cinder" protobuf:"bytes,8,opt,name=cinder"`
+	// CephFS represents a Ceph FS mount on the host that shares a pod's lifetime
+	// +optional
+	CephFS *CephFSVolumeSource `json:"cephfs" protobuf:"bytes,9,opt,name=cephfs"`
+	// FC represents a Fibre Channel resource that is attached to a kubelet's host machine and then exposed to the pod.
+	// +optional
+	FC *FCVolumeSource `json:"fc" protobuf:"bytes,10,opt,name=fc"`
+	// Flocker represents a Flocker volume attached to a kubelet's host machine and exposed to the pod for its usage. This depends on the Flocker control service being running
+	// +optional
+	Flocker *FlockerVolumeSource `json:"flocker" protobuf:"bytes,11,opt,name=flocker"`
+	// FlexVolume represents a generic volume resource that is
+	// provisioned/attached using an exec based plugin. This is an
+	// alpha feature and may change in future.
+	// +optional
+	FlexVolume *FlexVolumeSource `json:"flexVolume" protobuf:"bytes,12,opt,name=flexVolume"`
+	// AzureFile represents an Azure File Service mount on the host and bind mount to the pod.
+	// +optional
+	AzureFile *AzureFileVolumeSource `json:"azureFile" protobuf:"bytes,13,opt,name=azureFile"`
+	// VsphereVolume represents a vSphere volume attached and mounted on kubelets host machine
+	// +optional
+	VsphereVolume *VsphereVirtualDiskVolumeSource `json:"vsphereVolume" protobuf:"bytes,14,opt,name=vsphereVolume"`
+	// Quobyte represents a Quobyte mount on the host that shares a pod's lifetime
+	// +optional
+	Quobyte *QuobyteVolumeSource `json:"quobyte" protobuf:"bytes,15,opt,name=quobyte"`
+	// AzureDisk represents an Azure Data Disk mount on the host and bind mount to the pod.
+	// +optional
+	AzureDisk *AzureDiskVolumeSource `json:"azureDisk" protobuf:"bytes,16,opt,name=azureDisk"`
+	// PhotonPersistentDisk represents a PhotonController persistent disk attached and mounted on kubelets host machine
+	PhotonPersistentDisk *PhotonPersistentDiskVolumeSource `json:"photonPersistentDisk" protobuf:"bytes,17,opt,name=photonPersistentDisk"`
+	// PortworxVolume represents a portworx volume attached and mounted on kubelets host machine
+	// +optional
+	PortworxVolume *PortworxVolumeSource `json:"portworxVolume" protobuf:"bytes,18,opt,name=portworxVolume"`
+	// ScaleIO represents a ScaleIO persistent volume attached and mounted on Kubernetes nodes.
+	// +optional
+	ScaleIO *ScaleIOVolumeSource `json:"scaleIO" protobuf:"bytes,19,opt,name=scaleIO"`
+	// Local represents directly-attached storage with node affinity
+	// +optional
+	Local *LocalVolumeSource `json:"local" protobuf:"bytes,20,opt,name=local"`
+}
