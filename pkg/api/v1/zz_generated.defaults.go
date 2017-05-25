@@ -56,6 +56,7 @@ func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&SecretList{}, func(obj interface{}) { SetObjectDefaults_SecretList(obj.(*SecretList)) })
 	scheme.AddTypeDefaultingFunc(&Service{}, func(obj interface{}) { SetObjectDefaults_Service(obj.(*Service)) })
 	scheme.AddTypeDefaultingFunc(&ServiceList{}, func(obj interface{}) { SetObjectDefaults_ServiceList(obj.(*ServiceList)) })
+	scheme.AddTypeDefaultingFunc(&VolumeSnapshotData{}, func(obj interface{}) { SetObjectDefaults_VolumeSnapshotData(obj.(*VolumeSnapshotData)) })
 	return nil
 }
 
@@ -627,5 +628,20 @@ func SetObjectDefaults_ServiceList(in *ServiceList) {
 	for i := range in.Items {
 		a := &in.Items[i]
 		SetObjectDefaults_Service(a)
+	}
+}
+
+func SetObjectDefaults_VolumeSnapshotData(in *VolumeSnapshotData) {
+	if in.Spec.VolumeSnapshotDataSource.RBD != nil {
+		SetDefaults_RBDVolumeSource(in.Spec.VolumeSnapshotDataSource.RBD)
+	}
+	if in.Spec.VolumeSnapshotDataSource.ISCSI != nil {
+		SetDefaults_ISCSIVolumeSource(in.Spec.VolumeSnapshotDataSource.ISCSI)
+	}
+	if in.Spec.VolumeSnapshotDataSource.AzureDisk != nil {
+		SetDefaults_AzureDiskVolumeSource(in.Spec.VolumeSnapshotDataSource.AzureDisk)
+	}
+	if in.Spec.VolumeSnapshotDataSource.ScaleIO != nil {
+		SetDefaults_ScaleIOVolumeSource(in.Spec.VolumeSnapshotDataSource.ScaleIO)
 	}
 }
