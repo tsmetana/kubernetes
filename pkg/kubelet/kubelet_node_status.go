@@ -910,6 +910,46 @@ func (kl *Kubelet) setNodeVolumesInUseStatus(node *v1.Node) {
 	}
 }
 
+// Helper function for the node status synchronization methods/
+func withoutError(f func(*v1.Node)) func(*v1.Node) error {
+	return func(n *v1.Node) error {
+		f(n)
+		return nil
+	}
+}
+
+// nodeStatusSyncLoop is run in goroutine to periodically sync node status. The synchronization might
+// be also enforced by the volume manager when VolumesInUse change to allow quick response from the controller.
+func (kl *Kubelet) nodeStatusSyncLoop(loopCh <-chan struct{}, volumesSyncCh <-chan struct{}, stopCh <-chan struct{}) {
+	var syncVolumes bool
+	for {
+		select {
+		case <-stopCh:
+			return
+		default:
+		}
+
+		if syncVolumes {
+			savedFuncs := kl.setNodeStatusFuncs
+			kl.setNodeStatusFuncs = []func(n *v1.Node) error{withoutError(kl.setNodeVolumesInUseStatus)}
+			kl.syncNodeStatus()
+			kl.setNodeStatusFuncs = savedFuncs
+			syncVolumes = false
+		} else {
+			kl.syncNodeStatus()
+		}
+
+		select {
+		case <-stopCh:
+			return
+		case <-volumesSyncCh:
+			syncVolumes = true
+		case <-loopCh:
+		}
+
+	}
+}
+
 // setNodeStatus fills in the Status fields of the given Node, overwriting
 // any fields that are currently set.
 // TODO(madhusudancs): Simplify the logic for setting node conditions and
@@ -926,12 +966,6 @@ func (kl *Kubelet) setNodeStatus(node *v1.Node) {
 // setNodeStatus funcs
 func (kl *Kubelet) defaultNodeStatusFuncs() []func(*v1.Node) error {
 	// initial set of node status update handlers, can be modified by Option's
-	withoutError := func(f func(*v1.Node)) func(*v1.Node) error {
-		return func(n *v1.Node) error {
-			f(n)
-			return nil
-		}
-	}
 	return []func(*v1.Node) error{
 		kl.setNodeAddress,
 		withoutError(kl.setNodeStatusInfo),

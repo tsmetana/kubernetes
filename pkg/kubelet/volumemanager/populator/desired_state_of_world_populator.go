@@ -83,7 +83,8 @@ func NewDesiredStateOfWorldPopulator(
 	podStatusProvider status.PodStatusProvider,
 	desiredStateOfWorld cache.DesiredStateOfWorld,
 	kubeContainerRuntime kubecontainer.Runtime,
-	keepTerminatedPodVolumes bool) DesiredStateOfWorldPopulator {
+	keepTerminatedPodVolumes bool,
+	statusSyncCh chan struct{}) DesiredStateOfWorldPopulator {
 	return &desiredStateOfWorldPopulator{
 		kubeClient:                kubeClient,
 		loopSleepDuration:         loopSleepDuration,
@@ -97,6 +98,7 @@ func NewDesiredStateOfWorldPopulator(
 		keepTerminatedPodVolumes: keepTerminatedPodVolumes,
 		hasAddedPods:             false,
 		hasAddedPodsLock:         sync.RWMutex{},
+		statusSyncCh:             statusSyncCh,
 	}
 }
 
@@ -113,6 +115,7 @@ type desiredStateOfWorldPopulator struct {
 	keepTerminatedPodVolumes  bool
 	hasAddedPods              bool
 	hasAddedPodsLock          sync.RWMutex
+	statusSyncCh              chan struct{}
 }
 
 type processedPods struct {
@@ -299,6 +302,7 @@ func (dswp *desiredStateOfWorldPopulator) processPodVolumes(pod *v1.Pod) {
 	// some of the volume additions may have failed, should not mark this pod as fully processed
 	if allVolumesAdded {
 		dswp.markPodProcessed(uniquePodName)
+		dswp.statusSyncCh <- struct{}{}
 	}
 
 }

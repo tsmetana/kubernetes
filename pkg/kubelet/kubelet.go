@@ -746,6 +746,8 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 	if len(kubeCfg.ExperimentalMounterPath) != 0 {
 		kubeCfg.ExperimentalCheckNodeCapabilitiesBeforeMount = false
 	}
+
+	klet.volumesSyncCh = make(chan struct{})
 	// setup volumeManager
 	klet.volumeManager = volumemanager.NewVolumeManager(
 		kubeCfg.EnableControllerAttachDetach,
@@ -759,7 +761,8 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 		klet.getPodsDir(),
 		kubeDeps.Recorder,
 		kubeCfg.ExperimentalCheckNodeCapabilitiesBeforeMount,
-		kubeCfg.KeepTerminatedPodVolumes)
+		kubeCfg.KeepTerminatedPodVolumes,
+		klet.volumesSyncCh)
 
 	runtimeCache, err := kubecontainer.NewRuntimeCache(klet.containerRuntime)
 	if err != nil {
@@ -834,6 +837,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 	// Finally, put the most recent version of the config on the Kubelet, so
 	// people can see how it was configured.
 	klet.kubeletConfiguration = *kubeCfg
+
 	return klet, nil
 }
 
@@ -1103,6 +1107,9 @@ type Kubelet struct {
 	// dockerLegacyService contains some legacy methods for backward compatibility.
 	// It should be set only when docker is using non json-file logging driver.
 	dockerLegacyService dockershim.DockerLegacyService
+
+	// The channel for volume manager to force node status sync when VolumesInUse change
+	volumesSyncCh chan struct{}
 }
 
 func allLocalIPsWithoutLoopback() ([]net.IP, error) {
@@ -1270,8 +1277,10 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 	go kl.volumeManager.Run(kl.sourcesReady, wait.NeverStop)
 
 	if kl.kubeClient != nil {
+		loopCh := make(chan struct{})
 		// Start syncing node status immediately, this may set up things the runtime needs to run.
-		go wait.Until(kl.syncNodeStatus, kl.nodeStatusUpdateFrequency, wait.NeverStop)
+		go kl.nodeStatusSyncLoop(loopCh, kl.volumesSyncCh, wait.NeverStop)
+		go wait.Until(func() { loopCh <- struct{}{} }, kl.nodeStatusUpdateFrequency, wait.NeverStop)
 	}
 	go wait.Until(kl.syncNetworkStatus, 30*time.Second, wait.NeverStop)
 	go wait.Until(kl.updateRuntimeUp, 5*time.Second, wait.NeverStop)
