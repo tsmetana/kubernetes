@@ -178,6 +178,7 @@ func (in *KubeletConfiguration) DeepCopyInto(out *KubeletConfiguration) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	out.ProcessVolumeFailureEventInterval = in.ProcessVolumeFailureEventInterval
 	return
 }
 

@@ -135,6 +135,7 @@ kubeletConfiguration:
     streamingConnectionIdleTimeout: 4h0m0s
     syncFrequency: 1m0s
     volumeStatsAggPeriod: 1m0s
+    processVolumeFailureEventInterval: 10s
 kubernetesVersion: v1.10.2
 networking:
   dnsDomain: cluster.local

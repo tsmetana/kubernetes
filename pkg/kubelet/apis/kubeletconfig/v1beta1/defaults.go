@@ -204,4 +204,7 @@ func SetDefaults_KubeletConfiguration(obj *KubeletConfiguration) {
 	if obj.EnforceNodeAllocatable == nil {
 		obj.EnforceNodeAllocatable = DefaultNodeAllocatableEnforcement
 	}
+	if obj.ProcessVolumeFailureEventInterval == zeroDuration {
+		obj.ProcessVolumeFailureEventInterval = metav1.Duration{Duration: 10 * time.Second}
+	}
 }
