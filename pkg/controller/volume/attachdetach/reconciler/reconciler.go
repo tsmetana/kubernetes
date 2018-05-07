@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/cache"
 	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/statusupdater"
+	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/util"
 	kevents "k8s.io/kubernetes/pkg/kubelet/events"
 	"k8s.io/kubernetes/pkg/util/goroutinemap/exponentialbackoff"
 	"k8s.io/kubernetes/pkg/volume"
@@ -244,6 +245,10 @@ func (rc *reconciler) reconcile() {
 	}
 
 	rc.attachDesiredVolumes()
+
+	// Update metrics
+	util.RecordADControllerVolumesMetric("actual_state_of_world", len(rc.actualStateOfWorld.GetAttachedVolumes()))
+	util.RecordADControllerVolumesMetric("desired_state_of_world", len(rc.desiredStateOfWorld.GetVolumesToAttach()))
 
 	// Update Node Status
 	err := rc.nodeStatusUpdater.UpdateNodeStatuses()
