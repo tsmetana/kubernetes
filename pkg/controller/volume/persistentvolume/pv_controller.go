@@ -40,6 +40,7 @@ import (
 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/controller/volume/events"
+	"k8s.io/kubernetes/pkg/controller/volume/persistentvolume/metrics"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/util/goroutinemap"
 	"k8s.io/kubernetes/pkg/util/goroutinemap/exponentialbackoff"
@@ -1041,8 +1042,14 @@ func (ctrl *PersistentVolumeController) reclaimVolume(volume *v1.PersistentVolum
 	case v1.PersistentVolumeReclaimDelete:
 		glog.V(4).Infof("reclaimVolume[%s]: policy is Delete", volume.Name)
 		opName := fmt.Sprintf("delete-%s[%s]", volume.Name, string(volume.UID))
+		startTime := time.Now()
 		ctrl.scheduleOperation(opName, func() error {
-			return ctrl.deleteVolumeOperation(volume)
+			err := ctrl.deleteVolumeOperation(volume)
+			timeTaken := time.Since(startTime).Seconds()
+			if err == nil {
+				metrics.RecordVolOperationMetric("delete", volume.Spec.StorageClassName, volume.Name, timeTaken)
+			}
+			return err
 		})
 
 	default:
@@ -1322,9 +1329,14 @@ func (ctrl *PersistentVolumeController) provisionClaim(claim *v1.PersistentVolum
 	}
 	glog.V(4).Infof("provisionClaim[%s]: started", claimToClaimKey(claim))
 	opName := fmt.Sprintf("provision-%s[%s]", claimToClaimKey(claim), string(claim.UID))
+	startTime := time.Now()
 	ctrl.scheduleOperation(opName, func() error {
-		ctrl.provisionClaimOperation(claim)
-		return nil
+		err := ctrl.provisionClaimOperation(claim)
+		timeTaken := time.Since(startTime).Seconds()
+		if err == nil {
+			metrics.RecordVolOperationMetric("provision", v1helper.GetPersistentVolumeClaimClass(claim), ctrl.getProvisionedVolumeNameForClaim(claim), timeTaken)
+		}
+		return err
 	})
 	return nil
 }

@@ -38,6 +38,7 @@ const (
 	// Label names.
 	namespaceLabel    = "namespace"
 	storageClassLabel = "storage_class"
+	volumeLabel       = "volume"
 )
 
 var registerMetrics sync.Once
@@ -56,6 +57,7 @@ type PVCLister interface {
 func Register(pvLister PVLister, pvcLister PVCLister) {
 	registerMetrics.Do(func() {
 		prometheus.MustRegister(newPVAndPVCCountCollector(pvLister, pvcLister))
+		prometheus.MustRegister(volumeOperationMetric)
 	})
 }
 
@@ -89,7 +91,23 @@ var (
 		prometheus.BuildFQName("", pvControllerSubsystem, unboundPVCKey),
 		"Gauge measuring number of persistent volume claim currently unbound",
 		[]string{namespaceLabel}, nil)
+
+	volumeOperationMetric = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "volume_operation_total_seconds",
+			Help: "Total volume operation time",
+		},
+		[]string{"operation_name", storageClassLabel, volumeLabel})
 )
+
+func RecordVolOperationMetric(opName, scName, volName string, timeTaken float64) {
+	labels := prometheus.Labels{
+		"operation_name":  opName,
+		storageClassLabel: scName,
+		volumeLabel:       volName,
+	}
+	volumeOperationMetric.With(labels).Observe(timeTaken)
+}
 
 func (collector *pvAndPVCCountCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- boundPVCountDesc
