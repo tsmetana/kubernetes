@@ -1046,9 +1046,7 @@ func (ctrl *PersistentVolumeController) reclaimVolume(volume *v1.PersistentVolum
 		ctrl.scheduleOperation(opName, func() error {
 			err := ctrl.deleteVolumeOperation(volume)
 			timeTaken := time.Since(startTime).Seconds()
-			if err == nil {
-				metrics.RecordVolOperationMetric("delete", volume.Spec.StorageClassName, volume.Name, timeTaken)
-			}
+			metrics.RecordVolOperationMetric("delete", volume.Spec.StorageClassName, volume.Name, timeTaken, err)
 			return err
 		})
 
@@ -1333,9 +1331,7 @@ func (ctrl *PersistentVolumeController) provisionClaim(claim *v1.PersistentVolum
 	ctrl.scheduleOperation(opName, func() error {
 		err := ctrl.provisionClaimOperation(claim)
 		timeTaken := time.Since(startTime).Seconds()
-		if err == nil {
-			metrics.RecordVolOperationMetric("provision", v1helper.GetPersistentVolumeClaimClass(claim), ctrl.getProvisionedVolumeNameForClaim(claim), timeTaken)
-		}
+		metrics.RecordVolOperationMetric("provision", v1helper.GetPersistentVolumeClaimClass(claim), ctrl.getProvisionedVolumeNameForClaim(claim), timeTaken, err)
 		return err
 	})
 	return nil

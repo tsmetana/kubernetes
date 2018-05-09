@@ -58,6 +58,7 @@ func Register(pvLister PVLister, pvcLister PVCLister) {
 	registerMetrics.Do(func() {
 		prometheus.MustRegister(newPVAndPVCCountCollector(pvLister, pvcLister))
 		prometheus.MustRegister(volumeOperationMetric)
+		prometheus.MustRegister(volumeOperationErrorsMetric)
 	})
 }
 
@@ -98,15 +99,21 @@ var (
 			Help: "Total volume operation time",
 		},
 		[]string{"operation_name", storageClassLabel, volumeLabel})
+	volumeOperationErrorsMetric = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "volume_operation_total_errors",
+			Help: "Total volume operation erros",
+		},
+		[]string{"operation_name", storageClassLabel, volumeLabel})
 )
 
-func RecordVolOperationMetric(opName, scName, volName string, timeTaken float64) {
-	labels := prometheus.Labels{
-		"operation_name":  opName,
-		storageClassLabel: scName,
-		volumeLabel:       volName,
+// RecordVolOperationMetric records the latency and errors of volume operations.
+func RecordVolOperationMetric(opName, scName, volName string, timeTaken float64, err error) {
+	if err != nil {
+		volumeOperationErrorsMetric.WithLabelValues(opName, scName, volName).Inc()
+		return
 	}
-	volumeOperationMetric.With(labels).Observe(timeTaken)
+	volumeOperationMetric.WithLabelValues(opName, scName, volName).Observe(timeTaken)
 }
 
 func (collector *pvAndPVCCountCollector) Describe(ch chan<- *prometheus.Desc) {
