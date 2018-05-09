@@ -1331,7 +1331,7 @@ func (ctrl *PersistentVolumeController) provisionClaim(claim *v1.PersistentVolum
 
 // provisionClaimOperation provisions a volume. This method is running in
 // standalone goroutine and already has all necessary locks.
-func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.PersistentVolumeClaim) {
+func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.PersistentVolumeClaim) error {
 	claimClass := v1helper.GetPersistentVolumeClaimClass(claim)
 	glog.V(4).Infof("provisionClaimOperation [%s] started, class: %q", claimToClaimKey(claim), claimClass)
 
@@ -1341,7 +1341,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 		glog.V(2).Infof("error finding provisioning plugin for claim %s: %v", claimToClaimKey(claim), err)
 		// The controller will retry provisioning the volume in every
 		// syncVolume() call.
-		return
+		return err
 	}
 
 	// Add provisioner annotation so external provisioners know when to start
@@ -1349,7 +1349,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 	if err != nil {
 		// Save failed, the controller will retry in the next sync
 		glog.V(2).Infof("error saving claim %s: %v", claimToClaimKey(claim), err)
-		return
+		return err
 	}
 	claim = newClaim
 
@@ -1360,7 +1360,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 		msg := fmt.Sprintf("waiting for a volume to be created, either by external provisioner %q or manually created by system administrator", storageClass.Provisioner)
 		ctrl.eventRecorder.Event(claim, v1.EventTypeNormal, events.ExternalProvisioning, msg)
 		glog.V(3).Infof("provisioning claim %q: %s", claimToClaimKey(claim), msg)
-		return
+		return nil
 	}
 
 	// internal provisioning
@@ -1374,7 +1374,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 	if err == nil && volume != nil {
 		// Volume has been already provisioned, nothing to do.
 		glog.V(4).Infof("provisionClaimOperation [%s]: volume already exists, skipping", claimToClaimKey(claim))
-		return
+		return err
 	}
 
 	// Prepare a claimRef to the claim early (to fail before a volume is
@@ -1382,7 +1382,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 	claimRef, err := ref.GetReference(scheme.Scheme, claim)
 	if err != nil {
 		glog.V(3).Infof("unexpected error getting claim reference: %v", err)
-		return
+		return err
 	}
 
 	// Gather provisioning options
@@ -1407,7 +1407,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 		strerr := fmt.Sprintf("Mount options are not supported by the provisioner but StorageClass %q has mount options %v", storageClass.Name, options.MountOptions)
 		glog.V(2).Infof("Mount options are not supported by the provisioner but claim %q's StorageClass %q has mount options %v", claimToClaimKey(claim), storageClass.Name, options.MountOptions)
 		ctrl.eventRecorder.Event(claim, v1.EventTypeWarning, events.ProvisioningFailed, strerr)
-		return
+		return nil
 	}
 
 	// Provision the volume
@@ -1416,7 +1416,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 		strerr := fmt.Sprintf("Failed to create provisioner: %v", err)
 		glog.V(2).Infof("failed to create provisioner for claim %q with StorageClass %q: %v", claimToClaimKey(claim), storageClass.Name, err)
 		ctrl.eventRecorder.Event(claim, v1.EventTypeWarning, events.ProvisioningFailed, strerr)
-		return
+		return err
 	}
 
 	opComplete := util.OperationCompleteHook(plugin.GetPluginName(), "volume_provision")
@@ -1426,7 +1426,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 		strerr := fmt.Sprintf("Failed to provision volume with StorageClass %q: %v", storageClass.Name, err)
 		glog.V(2).Infof("failed to provision volume for claim %q with StorageClass %q: %v", claimToClaimKey(claim), storageClass.Name, err)
 		ctrl.eventRecorder.Event(claim, v1.EventTypeWarning, events.ProvisioningFailed, strerr)
-		return
+		return err
 	}
 
 	glog.V(3).Infof("volume %q for claim %q created", volume.Name, claimToClaimKey(claim))
@@ -1511,6 +1511,7 @@ func (ctrl *PersistentVolumeController) provisionClaimOperation(claim *v1.Persis
 		msg := fmt.Sprintf("Successfully provisioned volume %s using %s", volume.Name, plugin.GetPluginName())
 		ctrl.eventRecorder.Event(claim, v1.EventTypeNormal, events.ProvisioningSucceeded, msg)
 	}
+	return nil
 }
 
 // getProvisionedVolumeNameForClaim returns PV.Name for the provisioned volume.
