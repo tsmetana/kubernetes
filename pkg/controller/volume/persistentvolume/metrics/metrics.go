@@ -59,6 +59,7 @@ func Register(pvLister PVLister, pvcLister PVCLister) {
 		prometheus.MustRegister(newPVAndPVCCountCollector(pvLister, pvcLister))
 		prometheus.MustRegister(volumeOperationMetric)
 		prometheus.MustRegister(volumeOperationErrorsMetric)
+		prometheus.MustRegister(usedPVCsMetric)
 	})
 }
 
@@ -105,6 +106,13 @@ var (
 			Help: "Total volume operation erros",
 		},
 		[]string{"operation_name", storageClassLabel, volumeLabel})
+
+	usedPVCsMetric = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "pvc_used_total_count",
+			Help: "Total number of PVCs in use by Pods",
+		},
+		[]string{volumeLabel})
 )
 
 // RecordVolOperationMetric records the latency and errors of volume operations.
@@ -114,6 +122,11 @@ func RecordVolOperationMetric(opName, scName, volName string, timeTaken float64,
 		return
 	}
 	volumeOperationMetric.WithLabelValues(opName, scName, volName).Observe(timeTaken)
+}
+
+// RecordUsedPVCsMetric registers the amount of PVCs in use by pods.
+func RecordUsedPVCsMetric(volName string, inUseByPods int) {
+	usedPVCsMetric.WithLabelValues(volName).Set(float64(inUseByPods))
 }
 
 func (collector *pvAndPVCCountCollector) Describe(ch chan<- *prometheus.Desc) {

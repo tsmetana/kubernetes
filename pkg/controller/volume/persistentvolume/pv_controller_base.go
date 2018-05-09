@@ -200,6 +200,10 @@ func (ctrl *PersistentVolumeController) updateVolume(volume *v1.PersistentVolume
 			glog.Errorf("could not sync volume %q: %+v", volume.Name, err)
 		}
 	}
+
+	if pods, _, err := ctrl.isVolumeUsed(volume); err == nil {
+		metrics.RecordUsedPVCsMetric(volume.Name, len(pods))
+	}
 }
 
 // deleteVolume runs in worker thread and handles "volume deleted" event.
