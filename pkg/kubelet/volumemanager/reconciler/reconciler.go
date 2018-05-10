@@ -36,6 +36,7 @@ import (
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	"k8s.io/kubernetes/pkg/kubelet/volumemanager/cache"
+	"k8s.io/kubernetes/pkg/kubelet/volumemanager/metrics"
 	utilfile "k8s.io/kubernetes/pkg/util/file"
 	"k8s.io/kubernetes/pkg/util/goroutinemap/exponentialbackoff"
 	"k8s.io/kubernetes/pkg/util/mount"
@@ -154,6 +155,10 @@ func (rc *reconciler) reconciliationLoopFunc() func() {
 			glog.Infof("Reconciler: start to sync state")
 			rc.sync()
 		}
+
+		// Update metrics
+		metrics.RecordVolumeManagerVolumesMetric("actual_state_of_world", len(rc.actualStateOfWorld.GetMountedVolumes()))
+		metrics.RecordVolumeManagerVolumesMetric("desired_state_of_world", len(rc.desiredStateOfWorld.GetVolumesToMount()))
 	}
 }
 
