@@ -465,6 +465,7 @@ func (rc *reconciler) reconstructVolume(volume podVolume) (*reconstructedVolume,
 		volume.mountPath,
 		volume.pluginName)
 	if err != nil {
+		metrics.RecordRecVolErrorsMetric(volume.volumeSpecName)
 		return nil, err
 	}
 

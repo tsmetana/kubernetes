@@ -20,15 +20,30 @@ import "github.com/prometheus/client_golang/prometheus"
 
 func init() {
 	prometheus.MustRegister(volumeManagerVolumesMetric)
+	prometheus.MustRegister(reconstructVolumeErrorsMetric)
 }
 
-var volumeManagerVolumesMetric = prometheus.NewGaugeVec(
-	prometheus.GaugeOpts{
-		Name: "volume_manager_total_volumes",
-		Help: "Number of volumes in Volume Manager",
-	}, []string{"state"})
+var (
+	volumeManagerVolumesMetric = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "volume_manager_total_volumes",
+			Help: "Number of volumes in Volume Manager",
+		}, []string{"state"})
+
+	reconstructVolumeErrorsMetric = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "volume_manager_reconstruct_volume_errors_total",
+			Help: "Amount of errors on ReconstructVolumeOperation",
+		},
+		[]string{"volume_name"})
+)
 
 // RecordVolumeManagerVolumesMetric registers the amount of volumes, and their respective states, in the Volume Manager.
 func RecordVolumeManagerVolumesMetric(state string, number int) {
 	volumeManagerVolumesMetric.WithLabelValues(state).Set(float64(number))
+}
+
+// RecordRecVolErrorsMetric registers the amount of errors that happened on ReconstructVolumeOperation.
+func RecordRecVolErrorsMetric(volName string) {
+	reconstructVolumeErrorsMetric.WithLabelValues(volName).Inc()
 }
