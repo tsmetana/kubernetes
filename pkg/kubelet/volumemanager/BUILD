@@ -76,6 +76,7 @@ filegroup(
     srcs = [
         ":package-srcs",
         "//pkg/kubelet/volumemanager/cache:all-srcs",
+        "//pkg/kubelet/volumemanager/metrics:all-srcs",
         "//pkg/kubelet/volumemanager/populator:all-srcs",
         "//pkg/kubelet/volumemanager/reconciler:all-srcs",
     ],

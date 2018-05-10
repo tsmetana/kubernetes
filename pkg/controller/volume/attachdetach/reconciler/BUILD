@@ -13,6 +13,7 @@ go_library(
     deps = [
         "//pkg/controller/volume/attachdetach/cache:go_default_library",
         "//pkg/controller/volume/attachdetach/statusupdater:go_default_library",
+        "//pkg/controller/volume/attachdetach/util:go_default_library",
         "//pkg/kubelet/events:go_default_library",
         "//pkg/util/goroutinemap/exponentialbackoff:go_default_library",
         "//pkg/volume:go_default_library",
