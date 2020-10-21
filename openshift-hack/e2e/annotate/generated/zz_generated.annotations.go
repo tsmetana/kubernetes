@@ -10343,6 +10343,8 @@ var annotations = map[string]string{
 
 	"[Top Level] [sig-storage] [Serial] Volume metrics PVController should create none metrics for pvc controller before creating any PV or PVC": "should create none metrics for pvc controller before creating any PV or PVC [Suite:openshift/conformance/serial] [Suite:k8s]",
 
+	"[Top Level] [sig-storage] [Serial] Volume metrics PVController should create total pv count metrics for with plugin and volume mode labels after creating pv": "should create total pv count metrics for with plugin and volume mode labels after creating pv [Suite:openshift/conformance/serial] [Suite:k8s]",
+
 	"[Top Level] [sig-storage] [Serial] Volume metrics PVController should create unbound pv count metrics for pvc controller after creating pv only": "should create unbound pv count metrics for pvc controller after creating pv only [Suite:openshift/conformance/serial] [Suite:k8s]",
 
 	"[Top Level] [sig-storage] [Serial] Volume metrics PVController should create unbound pvc count metrics for pvc controller after creating pvc only": "should create unbound pvc count metrics for pvc controller after creating pvc only [Suite:openshift/conformance/serial] [Suite:k8s]",
