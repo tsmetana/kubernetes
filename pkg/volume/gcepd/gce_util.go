@@ -58,6 +58,9 @@ const (
 	// scsi_id output should be in the form of:
 	// 0Google PersistentDisk <disk name>
 	scsiPattern = `^0Google\s+PersistentDisk\s+([\S]+)\s*$`
+
+	clusterLabelOwnedKeyPrefix = "kubernetes-io-cluster-"
+	clusterLablelOwnedValue    = "owned"
 )
 
 var (
@@ -191,10 +194,22 @@ func (util *GCEDiskUtil) CreateVolume(c *gcePersistentDiskProvisioner, node *v1.
 		return "", 0, nil, "", fmt.Errorf("replication-type of '%s' is not supported", replicationType)
 	}
 
-	labels, err := cloud.GetAutoLabelsForPD(disk)
+	labels := map[string]string{}
+	clusterID, err := cloud.ClusterID.GetID()
+	if err != nil {
+		klog.Errorf("error getting cluster ID for volume %q: %v", name, err)
+		err = nil
+	} else {
+		clusterLabelKey := fmt.Sprintf("%s%s", clusterLabelOwnedKeyPrefix, clusterID)
+		labels[clusterLabelKey] = clusterLablelOwnedValue
+	}
+	autoLabels, err := cloud.GetAutoLabelsForPD(disk)
 	if err != nil {
 		// We don't really want to leak the volume here...
 		klog.Errorf("error getting labels for volume %q: %v", name, err)
+	}
+	for l, v := range autoLabels {
+		labels[l] = v
 	}
 
 	return name, int(requestGB), labels, fstype, nil
