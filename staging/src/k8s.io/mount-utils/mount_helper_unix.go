@@ -20,7 +20,9 @@ limitations under the License.
 package mount
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -51,6 +53,8 @@ func IsCorruptedMnt(err error) bool {
 		underlyingError = pe.Err
 	case *os.SyscallError:
 		underlyingError = pe.Err
+	case syscall.Errno:
+		underlyingError = err
 	}
 
 	return underlyingError == syscall.ENOTCONN || underlyingError == syscall.ESTALE || underlyingError == syscall.EIO || underlyingError == syscall.EACCES || underlyingError == syscall.EHOSTDOWN
@@ -156,4 +160,18 @@ func ParseMountInfo(filename string) ([]MountInfo, error) {
 func isMountPointMatch(mp MountPoint, dir string) bool {
 	deletedDir := fmt.Sprintf("%s\\040(deleted)", dir)
 	return ((mp.Path == dir) || (mp.Path == deletedDir))
+}
+
+// PathExists returns true if the specified path exists.
+// TODO: clean this up to use pkg/util/file/FileExists
+func PathExists(path string) (bool, error) {
+	err := syscall.Access(path, syscall.F_OK)
+	if err == nil {
+		return true, nil
+	} else if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	} else if IsCorruptedMnt(err) {
+		return true, err
+	}
+	return false, err
 }
